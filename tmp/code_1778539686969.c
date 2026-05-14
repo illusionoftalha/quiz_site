@@ -1,0 +1,1 @@
+#include <stdio.h>\n\nint main() {\n    // Write your solution for V_TEST_P1\n    return 0;\n}

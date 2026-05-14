@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CSC-102 :: Quiz Terminal</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --g: #39ff14;
+  --gdim: #1a8c00;
+  --gglow: rgba(57,255,20,0.18);
+  --gfaint: rgba(57,255,20,0.06);
+  --amber: #ffb300;
+  --red: #ff3c3c;
+  --cyan: #00e5ff;
+  --bg: #050905;
+  --mono: 'Share Tech Mono', monospace;
+  --vt: 'VT323', monospace;
+}
+html,body { min-height:100vh; background:var(--bg); color:var(--g); font-family:var(--mono); overflow-x:hidden; }
+body::before {
+  content:''; position:fixed; inset:0;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.18) 2px,rgba(0,0,0,0.18) 4px);
+  pointer-events:none; z-index:999;
+}
+body::after {
+  content:''; position:fixed; inset:0;
+  background:radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,0.72) 100%);
+  pointer-events:none; z-index:998;
+}
+@keyframes flicker { 0%,100%{opacity:1} 92%{opacity:1} 93%{opacity:.84} 94%{opacity:1} 96%{opacity:.9} 97%{opacity:1} }
+@keyframes blink   { 0%,49%{opacity:1} 50%,100%{opacity:0} }
+@keyframes scan    { 0%{transform:translateY(-100%)} 100%{transform:translateY(100vh)} }
+@keyframes fadein  { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+@keyframes glitch  { 0%,100%{transform:translate(0)} 20%{transform:translate(-2px,1px)} 60%{transform:translate(2px,-1px)} }
+
+.scanline { position:fixed; top:0; left:0; right:0; height:4px; background:linear-gradient(transparent,rgba(57,255,20,0.06),transparent); animation:scan 7s linear infinite; pointer-events:none; z-index:997; }
+
+.screen { animation:flicker 9s infinite; min-height:100vh; padding:1.4rem 1rem 3rem; display:flex; flex-direction:column; align-items:center; }
+
+/* ── HEADER ── */
+.hdr { width:100%; max-width:760px; margin-bottom:1.2rem; }
+.topbar { display:flex; justify-content:space-between; font-size:.68rem; color:var(--gdim); border-bottom:1px solid var(--gdim); padding-bottom:.35rem; margin-bottom:.7rem; letter-spacing:.08em; }
+.title { font-family:var(--vt); font-size:clamp(2rem,7vw,4.2rem); line-height:1; color:var(--g); text-shadow:0 0 18px var(--g),0 0 55px rgba(57,255,20,.3); letter-spacing:.06em; }
+.subtitle { font-size:.68rem; color:var(--gdim); margin-top:.25rem; letter-spacing:.14em; }
+
+/* ── BOX ── */
+.box { width:100%; max-width:760px; border:1px solid var(--gdim); position:relative; background:var(--gfaint); box-shadow:0 0 28px rgba(57,255,20,.06),inset 0 0 18px rgba(57,255,20,.03); }
+.blabel { position:absolute; top:-.52rem; left:1rem; background:var(--bg); padding:0 .45rem; font-size:.62rem; color:var(--gdim); letter-spacing:.12em; text-transform:uppercase; }
+.binner { padding:1.3rem 1.5rem; }
+
+/* ── PROGRESS ── */
+.prow { display:flex; justify-content:space-between; font-size:.68rem; color:var(--gdim); margin-bottom:.35rem; letter-spacing:.08em; }
+.ptrack { height:2px; background:var(--gdim); width:100%; margin-bottom:1.1rem; }
+.pfill { height:2px; background:var(--g); box-shadow:0 0 7px var(--g); transition:width .4s ease; }
+
+/* ── Q META ── */
+.qmeta { display:flex; gap:.9rem; align-items:center; margin-bottom:.8rem; }
+.qid { font-family:var(--vt); font-size:1.6rem; color:var(--g); text-shadow:0 0 9px var(--g); }
+.qtag { font-size:.62rem; letter-spacing:.12em; color:var(--bg); background:var(--gdim); padding:.15rem .5rem; }
+.qprompt { font-size:.68rem; color:var(--gdim); margin-bottom:.45rem; }
+.qtext { font-size:.95rem; line-height:1.65; color:var(--g); margin-bottom:.9rem; animation:fadein .3s ease; }
+
+/* ── CODE ── */
+.code { border:1px solid var(--gdim); border-left:3px solid var(--g); background:rgba(0,0,0,.55); padding:.85rem 1.1rem; font-size:.8rem; line-height:1.75; margin-bottom:.9rem; overflow-x:auto; animation:fadein .3s ease; }
+.kw  { color:#ff3c3c; }
+.fn  { color:#39ff14; text-shadow:0 0 5px rgba(57,255,20,.5); }
+.str { color:var(--amber); }
+.num { color:var(--cyan); }
+.cmt { color:var(--gdim); font-style:italic; }
+
+/* ── OPTIONS ── */
+.opts { display:flex; flex-direction:column; gap:.45rem; margin-bottom:.9rem; }
+.obtn {
+  background:transparent; border:1px solid var(--gdim); color:var(--g);
+  font-family:var(--mono); font-size:.85rem; padding:.6rem .95rem;
+  cursor:pointer; text-align:left; display:flex; gap:.8rem; align-items:flex-start;
+  transition:background .15s,border-color .15s; animation:fadein .3s ease both; line-height:1.5;
+}
+.obtn:nth-child(1){animation-delay:.04s} .obtn:nth-child(2){animation-delay:.09s}
+.obtn:nth-child(3){animation-delay:.14s} .obtn:nth-child(4){animation-delay:.19s}
+.obtn:hover:not(:disabled) { background:var(--gglow); border-color:var(--g); box-shadow:0 0 10px rgba(57,255,20,.14); }
+.oltr { flex-shrink:0; color:var(--gdim); width:1.3rem; }
+.obtn.correct { border-color:var(--g); background:rgba(57,255,20,.09); box-shadow:0 0 12px rgba(57,255,20,.18); }
+.obtn.correct .oltr { color:var(--g); }
+.obtn.wrong   { border-color:var(--red); background:rgba(255,60,60,.08); color:var(--red); }
+.obtn.wrong .oltr { color:var(--red); }
+.obtn.reveal  { border-color:rgba(57,255,20,.2); opacity:.4; }
+.obtn:disabled { cursor:default; }
+
+/* ── EXPLANATION ── */
+.expl { border-top:1px dashed var(--gdim); padding-top:.75rem; font-size:.78rem; line-height:1.7; color:var(--gdim); display:none; animation:fadein .3s ease; }
+.expl.show { display:block; }
+.expl::before { content:'> '; color:var(--g); }
+.expl b { color:var(--g); }
+
+/* ── BOTTOM ROW ── */
+.botrow { display:flex; justify-content:space-between; align-items:center; margin-top:.9rem; border-top:1px solid var(--gdim); padding-top:.75rem; }
+.stmsg { font-size:.78rem; min-width:5rem; }
+.stok  { color:var(--g); text-shadow:0 0 7px var(--g); }
+.sterr { color:var(--red); text-shadow:0 0 7px var(--red); }
+.cbtn { background:transparent; border:1px solid var(--g); color:var(--g); font-family:var(--mono); font-size:.78rem; letter-spacing:.1em; padding:.42rem 1.1rem; cursor:pointer; text-shadow:0 0 5px var(--g); box-shadow:0 0 9px rgba(57,255,20,.09); transition:background .15s,box-shadow .15s; }
+.cbtn:hover:not(:disabled) { background:var(--gglow); box-shadow:0 0 18px rgba(57,255,20,.24); }
+.cbtn:disabled { border-color:var(--gdim); color:var(--gdim); text-shadow:none; box-shadow:none; cursor:default; }
+
+/* ── CURSOR ── */
+.cur { display:inline-block; width:.55em; height:.95em; background:var(--g); animation:blink 1s step-end infinite; vertical-align:middle; margin-left:2px; }
+
+/* ── START ── */
+#ss { width:100%; max-width:760px; }
+.bootlines { font-size:.76rem; color:var(--gdim); line-height:1.9; margin-bottom:1.1rem; }
+.bootlines .hl { color:var(--g); }
+.tgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:.35rem; margin:.9rem 0 1.4rem; }
+.titem { font-size:.7rem; color:var(--gdim); padding:.32rem 0; border-bottom:1px solid rgba(57,255,20,.12); letter-spacing:.04em; }
+.titem::before { content:'[+] '; color:var(--gdim); }
+.stbtn { background:transparent; border:1px solid var(--g); color:var(--g); font-family:var(--vt); font-size:1.65rem; letter-spacing:.15em; padding:.5rem 2.5rem; cursor:pointer; box-shadow:0 0 18px rgba(57,255,20,.14); text-shadow:0 0 9px var(--g); transition:background .2s,box-shadow .2s; display:block; margin:0 auto; }
+.stbtn:hover { background:var(--gglow); box-shadow:0 0 30px rgba(57,255,20,.28); animation:glitch .3s ease; }
+
+/* ── SCORE ── */
+#scr { display:none; width:100%; max-width:760px; }
+.scorebig { font-family:var(--vt); font-size:clamp(3.5rem,10vw,6rem); line-height:1; text-align:center; margin:.45rem 0; }
+.gradeln  { font-family:var(--vt); font-size:1.6rem; text-align:center; margin-bottom:.4rem; letter-spacing:.1em; }
+.scoremsg { font-size:.76rem; color:var(--gdim); text-align:center; margin-bottom:1.4rem; line-height:1.7; }
+.bdgrid   { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:.35rem; margin-bottom:1.4rem; }
+.bditem   { display:flex; justify-content:space-between; align-items:center; font-size:.7rem; border-bottom:1px solid rgba(57,255,20,.14); padding:.38rem 0; }
+.bdscore  { font-family:var(--vt); font-size:1.1rem; }
+.rbtn { background:transparent; border:1px solid var(--g); color:var(--g); font-family:var(--vt); font-size:1.4rem; letter-spacing:.12em; padding:.42rem 2rem; cursor:pointer; text-shadow:0 0 7px var(--g); display:block; margin:0 auto; transition:background .2s; }
+.rbtn:hover { background:var(--gglow); box-shadow:0 0 22px rgba(57,255,20,.24); }
+hr.dv { border:none; border-top:1px solid rgba(57,255,20,.17); margin:.9rem 0; }
+.hidden { display:none !important; }
+@media(max-width:480px){ .binner{padding:1rem .9rem} .title{font-size:2rem} }
+</style>
+</head>
+<body>
+<div class="scanline"></div>
+<div class="screen">
+
+<div class="hdr">
+  <div class="topbar">
+    <span>CSC-102 :: PROGRAMMING FUNDAMENTALS :: SPRING 2026</span>
+    <span id="clk">--:--:--</span>
+  </div>
+  <div class="title">QUIZ_TERMINAL</div>
+  <div class="subtitle">// 20 QUESTIONS &nbsp;|&nbsp; 8 MODULES &nbsp;|&nbsp; C LANGUAGE FUNDAMENTALS</div>
+</div>
+
+<!-- START -->
+<div id="ss">
+  <div class="box">
+    <div class="blabel">SYSTEM_BOOT</div>
+    <div class="binner">
+      <div class="bootlines">
+        <div>INITIALIZING QUIZ ENGINE <span class="hl">......... OK</span></div>
+        <div>LOADING QUESTION BANK &nbsp;&nbsp;<span class="hl">......... OK</span></div>
+        <div>MODULES DETECTED &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="hl">......... 08</span></div>
+        <div>QUESTIONS LOADED &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="hl">......... 20</span></div>
+        <div>READY. AWAITING INPUT<span class="cur"></span></div>
+      </div>
+      <hr class="dv">
+      <div style="font-size:.68rem;color:var(--gdim);letter-spacing:.1em;margin-bottom:.6rem;">TOPICS COVERED:</div>
+      <div class="tgrid">
+        <div class="titem">Hello World</div>
+        <div class="titem">Variables &amp; Constants</div>
+        <div class="titem">Algorithms &amp; Pseudocode</div>
+        <div class="titem">Arithmetic &amp; Casting</div>
+        <div class="titem">Conditional Statements</div>
+        <div class="titem">Loops (for / while)</div>
+        <div class="titem">Nested Loops</div>
+        <div class="titem">Arrays &amp; Strings</div>
+      </div>
+      <button class="stbtn" onclick="startQ()">[ RUN QUIZ ]</button>
+    </div>
+  </div>
+</div>
+
+<!-- QUIZ -->
+<div id="qs" class="hidden" style="width:100%;max-width:760px;">
+  <div class="prow"><span id="pt">Q_01 / 20</span><span id="st">SCORE: 00</span></div>
+  <div class="ptrack"><div class="pfill" id="pf" style="width:5%"></div></div>
+  <div class="box">
+    <div class="blabel" id="bl">LAB_01</div>
+    <div class="binner">
+      <div class="qmeta">
+        <span class="qid" id="qid">Q01</span>
+        <span class="qtag" id="qtag">TOPIC</span>
+      </div>
+      <div class="qprompt">&gt; READ CAREFULLY AND SELECT THE CORRECT ANSWER:</div>
+      <div class="qtext" id="qtxt">Loading...</div>
+      <div id="ca"></div>
+      <div class="opts" id="opts"></div>
+      <div class="expl" id="ex"></div>
+      <div class="botrow">
+        <span class="stmsg" id="sm"></span>
+        <button class="cbtn" id="nb" onclick="nextQ()" disabled>NEXT &gt;&gt;</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SCORE -->
+<div id="scr">
+  <div class="box">
+    <div class="blabel">RESULTS_DUMP</div>
+    <div class="binner">
+      <div style="font-size:.68rem;color:var(--gdim);letter-spacing:.12em;margin-bottom:.3rem;">FINAL SCORE:</div>
+      <div class="scorebig" id="fs">0/20</div>
+      <div class="gradeln" id="gl"></div>
+      <div class="scoremsg" id="gm"></div>
+      <hr class="dv">
+      <div style="font-size:.68rem;color:var(--gdim);letter-spacing:.1em;margin-bottom:.6rem;">BREAKDOWN BY MODULE:</div>
+      <div class="bdgrid" id="bd"></div>
+      <button class="rbtn" onclick="restartQ()">[ RESTART ]</button>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<script>
+setInterval(()=>{
+  const n=new Date();
+  document.getElementById('clk').textContent=[n.getHours(),n.getMinutes(),n.getSeconds()].map(x=>String(x).padStart(2,'0')).join(':');
+},1000);
+
+const Qs=[
+  {topic:"HELLO_WORLD",lab:"LAB_01",text:"Which header file must be included in a C program to use the printf() function?",code:null,opts:["<math.h>","<stdlib.h>","<stdio.h>","<string.h>"],ans:2,expl:"<b>stdio.h</b> (Standard Input/Output) provides printf() and scanf() — the two most essential I/O functions in C."},
+  {topic:"HELLO_WORLD",lab:"LAB_01",text:"What does the \\n escape sequence do inside a printf() string?",code:`<span class="fn">printf</span>(<span class="str">"Line1\\nLine2"</span>);`,opts:["Prints the literal characters \\n","Inserts a newline — moves to the next line","Adds a tab space","Causes a compiler error"],ans:1,expl:"<b>\\n</b> is an escape sequence that outputs a newline character, moving the cursor to the start of the next line."},
+  {topic:"VARIABLES",lab:"LAB_02",text:"A classmate writes both lines below. Which statement about them is TRUE?",code:`<span class="kw">#define</span> MAX <span class="num">100</span>\n<span class="kw">const int</span> LIMIT = <span class="num">100</span>;`,opts:["#define stores MAX in memory; const does not","#define does text substitution before compilation; const is a typed variable in memory","Both are completely identical","const is processed by the preprocessor, #define by the compiler"],ans:1,expl:"<b>#define</b> is a preprocessor directive — it substitutes text before compilation, uses no memory, and has no type. <b>const</b> creates a typed variable stored in memory with type-safety."},
+  {topic:"VARIABLES",lab:"LAB_02",text:"What is the output of this snippet?",code:`<span class="kw">int</span> a = <span class="num">17</span>, b = <span class="num">5</span>;\n<span class="fn">printf</span>(<span class="str">"%d"</span>, a % b);`,opts:["3","2","3.4","0"],ans:1,expl:"<b>%</b> is the modulo (remainder) operator. 17 ÷ 5 = 3 with remainder <b>2</b>. So a % b = 2."},
+  {topic:"ALGORITHMS",lab:"LAB_03",text:"In standard pseudocode, which keyword is used to accept a value from the user?",code:null,opts:["FETCH / GRAB","READ / INPUT","ASSIGN / SET","LOAD / COLLECT"],ans:1,expl:"Standard pseudocode uses <b>INPUT</b> or <b>READ</b> for accepting user data, and <b>PRINT</b> or <b>OUTPUT</b> for displaying results."},
+  {topic:"ALGORITHMS",lab:"LAB_03",text:"Which is the correct formula for Area of Rectangle as written in a pseudocode algorithm?",code:null,opts:["area = 2 * (length + width)","area = length + width","area = length * width","area = length / width"],ans:2,expl:"Area of a rectangle = <b>length × width</b>. The formula 2×(l+w) is the perimeter — a common mix-up for beginners."},
+  {topic:"ARITHMETIC",lab:"LAB_04",text:"Both a and b are integers. What does C print?",code:`<span class="kw">int</span> a = <span class="num">9</span>, b = <span class="num">2</span>;\n<span class="fn">printf</span>(<span class="str">"%d"</span>, a / b);`,opts:["4.5","5","4","0"],ans:2,expl:"C performs <b>integer division</b> when both operands are ints — the decimal part is truncated. 9 / 2 = 4.5 → truncated to <b>4</b>."},
+  {topic:"ARITHMETIC",lab:"LAB_04",text:"Evaluate this expression following C operator precedence:  5 + 2 * 4 - 3",code:null,opts:["25","10","15","6"],ans:1,expl:"<b>*</b> binds tighter than + and –. So: 2×4=8 first, then 5+8=13, then 13–3 = <b>10</b>."},
+  {topic:"ARITHMETIC",lab:"LAB_04",text:"What is the purpose of the (float) cast in the code below?",code:`<span class="kw">int</span> x = <span class="num">5</span>, y = <span class="num">2</span>;\n<span class="kw">float</span> r = (<span class="kw">float</span>)x / y;\n<span class="fn">printf</span>(<span class="str">"%.1f"</span>, r);`,opts:["It converts y to float","Forces floating-point division, giving 2.5 instead of 2","It rounds the result to one decimal","Causes a compile-time error"],ans:1,expl:"<b>(float)x</b> temporarily converts x to a float before division, making C perform floating-point division: 5.0/2 = <b>2.5</b>."},
+  {topic:"CONDITIONALS",lab:"LAB_05",text:"Which is the syntactically correct if-else block in C?",code:null,opts:["if x > 0 { printf(\"Pos\"); } else { printf(\"Neg\"); }","if (x > 0) { printf(\"Pos\"); } else { printf(\"Neg\"); }","if (x > 0) then { printf(\"Pos\"); } else { printf(\"Neg\"); }","if [x > 0] printf(\"Pos\"); else printf(\"Neg\");"],ans:1,expl:"C requires the condition inside <b>parentheses ( )</b> and the body inside <b>curly braces { }</b>. There is no 'then' keyword — that belongs to Python/Pascal."},
+  {topic:"CONDITIONALS",lab:"LAB_05",text:"What happens in a switch statement when a matching case has no break statement?",code:null,opts:["Only the matched case runs, then the switch exits","A runtime error is thrown","Execution falls through and runs the next case(s) too","The default case runs instead"],ans:2,expl:"Without <b>break</b>, C 'falls through' — it continues executing the next case block even without a value match. Very common first-year bug. Always add break unless fall-through is intentional."},
+  {topic:"CONDITIONALS",lab:"LAB_05",text:"What does this print when marks = 55?",code:`<span class="kw">if</span> (marks >= <span class="num">80</span>) <span class="fn">printf</span>(<span class="str">"A"</span>);\n<span class="kw">else if</span> (marks >= <span class="num">60</span>) <span class="fn">printf</span>(<span class="str">"B"</span>);\n<span class="kw">else</span> <span class="fn">printf</span>(<span class="str">"C"</span>);`,opts:["A","B","C","BC"],ans:2,expl:"55 >= 80? No. 55 >= 60? No. So the final else runs and prints <b>C</b>. Only one branch of if/else-if/else ever executes."},
+  {topic:"LOOPS",lab:"LAB_06",text:"How many times does the body of this loop execute?",code:`<span class="kw">for</span> (<span class="kw">int</span> i = <span class="num">0</span>; i < <span class="num">5</span>; i++) {\n    <span class="fn">printf</span>(<span class="str">"%d "</span>, i);\n}`,opts:["4 times","5 times","6 times","Infinite"],ans:1,expl:"The loop runs for i = 0, 1, 2, 3, 4 — stopping when i reaches 5 (condition i < 5 becomes false). That is <b>5 iterations</b>."},
+  {topic:"LOOPS",lab:"LAB_06",text:"A do-while loop differs from a while loop because:",code:null,opts:["do-while can only count downwards","do-while always executes its body at least once, even if the condition is initially false","while loops do not support break statements","They are completely identical"],ans:1,expl:"A <b>while</b> checks the condition before the body — if false from the start, the body never runs. A <b>do-while</b> checks after, so the body always runs <b>at least once</b>."},
+  {topic:"LOOPS",lab:"LAB_06",text:"To extract the last digit of a number n (for a sum-of-digits program), which operation do you use?",code:null,opts:["n / 10","n * 10","n % 10","n - 10"],ans:2,expl:"<b>n % 10</b> gives the remainder when dividing by 10, which equals the last digit. For n=246: 246%10=6. Then divide n by 10 to remove that digit and repeat."},
+  {topic:"NESTED_LOOPS",lab:"LAB_07",text:"What does the break statement do when placed inside a for loop?",code:null,opts:["Skips only the current iteration and continues the loop","Immediately exits the entire loop — execution continues after it","Restarts the loop from the beginning","Jumps to the next function call"],ans:1,expl:"<b>break</b> terminates the nearest enclosing loop immediately. Don't confuse it with <b>continue</b>, which only skips one iteration without exiting."},
+  {topic:"NESTED_LOOPS",lab:"LAB_07",text:"What does this loop print?",code:`<span class="kw">for</span> (<span class="kw">int</span> i = <span class="num">1</span>; i <= <span class="num">5</span>; i++) {\n    <span class="kw">if</span> (i == <span class="num">3</span>) <span class="kw">continue</span>;\n    <span class="fn">printf</span>(<span class="str">"%d "</span>, i);\n}`,opts:["1 2 3 4 5","1 2 4 5   (skips 3)","1 2   (stops at 3)","Infinite loop"],ans:1,expl:"When i=3, <b>continue</b> skips the printf for that iteration and moves to i=4. The loop still finishes normally. Output: <b>1 2 4 5</b>."},
+  {topic:"NESTED_LOOPS",lab:"LAB_07",text:"How many total stars (*) does this nested loop print?",code:`<span class="kw">for</span> (<span class="kw">int</span> r = <span class="num">1</span>; r <= <span class="num">4</span>; r++) {\n    <span class="kw">for</span> (<span class="kw">int</span> c = <span class="num">1</span>; c <= r; c++)\n        <span class="fn">printf</span>(<span class="str">"*"</span>);\n}`,opts:["8","10","16","4"],ans:1,expl:"Row 1→1 star, Row 2→2, Row 3→3, Row 4→4. Total = 1+2+3+4 = <b>10</b> stars. The inner loop runs r times per outer iteration."},
+  {topic:"ARRAYS",lab:"LAB_08",text:"Which line correctly declares and initializes a 1D integer array of 4 elements?",code:null,opts:["int arr[4] = {2, 4, 6, 8};","array int arr(4) = [2, 4, 6, 8];","int arr = {2, 4, 6, 8};","int[4] arr = (2, 4, 6, 8);"],ans:0,expl:"C array syntax: <b>data_type name[size] = {values};</b>. Size in square brackets, values in curly braces. Only option A is syntactically valid."},
+  {topic:"ARRAYS",lab:"LAB_08",text:"What does strlen() return for the string below, and why?",code:`<span class="kw">char</span> word[] = <span class="str">"CODE"</span>;\n<span class="fn">printf</span>(<span class="str">"%d"</span>, <span class="fn">strlen</span>(word));`,opts:["5 — counts the null terminator \\0 too","4 — counts only the visible characters, not \\0","0 — strlen only works on empty strings","Compiler error — wrong format specifier"],ans:1,expl:"<b>strlen()</b> counts characters up to but <b>not including</b> the null terminator '\\0'. \"CODE\" has 4 characters, so strlen returns <b>4</b>. The array is size 5 (with '\\0') but strlen only counts the printable content."}
+];
+
+let cur=0, sc=0, answered=false;
+let ts={};
+Qs.forEach(q=>{ if(!ts[q.topic]) ts[q.topic]={c:0,t:0}; ts[q.topic].t++; });
+
+function startQ(){
+  document.getElementById('ss').classList.add('hidden');
+  document.getElementById('qs').classList.remove('hidden');
+  loadQ();
+}
+
+function loadQ(){
+  const q=Qs[cur]; answered=false;
+  const n=cur+1;
+  document.getElementById('qid').textContent=`Q${String(n).padStart(2,'0')}`;
+  document.getElementById('qtag').textContent=q.topic;
+  document.getElementById('bl').textContent=q.lab;
+  document.getElementById('qtxt').textContent=q.text;
+  document.getElementById('pt').textContent=`Q_${String(n).padStart(2,'0')} / 20`;
+  document.getElementById('st').textContent=`SCORE: ${String(sc).padStart(2,'0')}`;
+  document.getElementById('pf').style.width=`${(n/20)*100}%`;
+  const ex=document.getElementById('ex');
+  ex.classList.remove('show'); ex.innerHTML='';
+  const sm=document.getElementById('sm'); sm.textContent=''; sm.className='stmsg';
+  const nb=document.getElementById('nb'); nb.disabled=true;
+  nb.textContent=cur<Qs.length-1?'NEXT >>':'RESULTS >>';
+  document.getElementById('ca').innerHTML=q.code?`<div class="code">${q.code}</div>`:'';
+  const od=document.getElementById('opts'); od.innerHTML='';
+  ['A','B','C','D'].forEach((l,i)=>{
+    const b=document.createElement('button'); b.className='obtn';
+    b.innerHTML=`<span class="oltr">[${l}]</span>${q.opts[i]}`;
+    b.onclick=()=>pick(i); od.appendChild(b);
+  });
+}
+
+function pick(sel){
+  if(answered)return; answered=true;
+  const q=Qs[cur];
+  document.querySelectorAll('.obtn').forEach((b,i)=>{
+    b.disabled=true;
+    if(i===q.ans) b.classList.add('correct');
+    else if(i===sel) b.classList.add('wrong');
+    else b.classList.add('reveal');
+  });
+  const ex=document.getElementById('ex'); ex.innerHTML=q.expl; ex.classList.add('show');
+  const sm=document.getElementById('sm');
+  if(sel===q.ans){ sc++; ts[q.topic].c++; sm.textContent='// CORRECT'; sm.className='stmsg stok'; }
+  else { sm.textContent='// INCORRECT'; sm.className='stmsg sterr'; }
+  document.getElementById('st').textContent=`SCORE: ${String(sc).padStart(2,'0')}`;
+  document.getElementById('nb').disabled=false;
+}
+
+function nextQ(){
+  if(cur<Qs.length-1){ cur++; loadQ(); } else showScore();
+}
+
+function showScore(){
+  document.getElementById('qs').classList.add('hidden');
+  document.getElementById('scr').style.display='block';
+  const pct=(sc/20)*100;
+  document.getElementById('fs').textContent=`${sc} / 20`;
+  let grade,msg,col;
+  if(pct>=90){grade='GRADE: A — OUTSTANDING';col='var(--g)';msg='Excellent. You have demonstrated strong command of all 8 lab modules.';}
+  else if(pct>=75){grade='GRADE: B — GOOD';col='var(--cyan)';msg='Well done. Review the modules where you lost marks and you will be fully prepared.';}
+  else if(pct>=60){grade='GRADE: C — AVERAGE';col='var(--amber)';msg='Keep practicing. Focus on the weak areas identified in the breakdown below.';}
+  else{grade='GRADE: D — NEEDS WORK';col='var(--red)';msg='Go back and revisit the lab materials. Practice each concept by writing actual code.';}
+  const gl=document.getElementById('gl'); gl.textContent=grade; gl.style.color=col; gl.style.textShadow=`0 0 10px ${col}`;
+  const fs=document.getElementById('fs'); fs.style.color=col; fs.style.textShadow=`0 0 28px ${col},0 0 70px ${col}55`;
+  document.getElementById('gm').textContent=msg;
+  const bd=document.getElementById('bd'); bd.innerHTML='';
+  Object.entries(ts).forEach(([t,d])=>{
+    const c=d.c===d.t?'var(--g)':d.c===0?'var(--red)':'var(--amber)';
+    const div=document.createElement('div'); div.className='bditem';
+    div.innerHTML=`<span style="color:var(--gdim);letter-spacing:.05em;">${t.replace('_',' ')}</span><span class="bdscore" style="color:${c}">${d.c}/${d.t}</span>`;
+    bd.appendChild(div);
+  });
+}
+
+function restartQ(){
+  cur=0;sc=0;answered=false;
+  Object.keys(ts).forEach(k=>ts[k].c=0);
+  document.getElementById('scr').style.display='none';
+  document.getElementById('qs').classList.remove('hidden');
+  loadQ();
+}
+</script>
+</body>
+</html>

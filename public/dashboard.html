@@ -1,0 +1,1401 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CSC-102 :: Dashboard [SECURE TERMINAL]</title>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --g: #39ff14;
+      --gdim: #1a8c00;
+      --gglow: rgba(57, 255, 20, 0.6);
+      --gfaint: rgba(57, 255, 20, 0.15);
+      --bg: #020402;
+      --cyan: #00e5ff;
+      --cyan-glow: rgba(0, 229, 255, 0.6);
+      --red: #ff3c3c;
+      --red-glow: rgba(255, 60, 60, 0.6);
+      --amber: #ffb300;
+      --mono: 'Share Tech Mono', monospace;
+      --vt: 'VT323', monospace;
+      --grid-color: rgba(57, 255, 20, 0.05);
+    }
+
+    html,
+    body {
+      height: 100vh;
+      width: 100vw;
+      background-color: var(--bg);
+      background-image: 
+        linear-gradient(var(--grid-color) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+      background-size: 30px 30px;
+      background-position: center center;
+      color: var(--g);
+      font-family: var(--mono);
+      overflow: hidden;
+      display: flex;
+    }
+
+    /* CRT Base Effects */
+    body::before {
+      content: " ";
+      display: block;
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      right: 0;
+      background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+      z-index: 998;
+      background-size: 100% 3px, 6px 100%;
+      pointer-events: none;
+    }
+
+    body::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: radial-gradient(circle, rgba(0, 0, 0, 0) 40%, rgba(0, 0, 0, 0.9) 100%);
+      z-index: 999;
+      pointer-events: none;
+    }
+
+    .scanline {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 100px;
+      background: linear-gradient(0deg, rgba(0, 0, 0, 0) 0%, rgba(57, 255, 20, 0.2) 50%, rgba(0, 0, 0, 0) 100%);
+      animation: scan 6s linear infinite;
+      pointer-events: none;
+      z-index: 997;
+    }
+
+    @keyframes scan {
+      0% { transform: translateY(-100px) }
+      100% { transform: translateY(100vh) }
+    }
+
+    @keyframes textFlicker {
+      0%, 19.999%, 22%, 62.999%, 64%, 64.999%, 70%, 100% { opacity: 1; }
+      20%, 21.999%, 63%, 63.999%, 65%, 69.999% { opacity: 0.4; text-shadow: none; }
+    }
+
+    /* Typography & Glow */
+    h1, h2, h3, h4, span, p, div {
+      text-shadow: 0 0 4px var(--gglow);
+    }
+
+    h1, .sb-title {
+      animation: textFlicker 6s infinite;
+    }
+
+    .cyan-txt {
+      color: var(--cyan);
+      text-shadow: 0 0 5px var(--cyan-glow);
+    }
+
+    .red-txt {
+      color: var(--red);
+      text-shadow: 0 0 5px var(--red-glow);
+    }
+
+    .amber-txt {
+      color: var(--amber);
+      text-shadow: 0 0 5px rgba(255, 179, 0, 0.4);
+    }
+
+    /* Blinking Cursor */
+    .cursor::after {
+      content: '_';
+      animation: blink 1s step-end infinite;
+      text-shadow: 0 0 5px var(--gglow);
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+
+    /* Sidebar */
+    .sidebar {
+      width: 280px;
+      border-right: 2px solid var(--gdim);
+      padding: 2rem 1.5rem;
+      background: rgba(0, 10, 0, 0.8);
+      backdrop-filter: blur(5px);
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      box-shadow: inset -15px 0 30px rgba(0,0,0,0.8), 5px 0 15px rgba(57, 255, 20, 0.1);
+      transition: width 0.3s ease, padding 0.3s ease;
+      overflow: hidden;
+      white-space: nowrap;
+      position: relative;
+    }
+    
+    .sidebar.collapsed {
+      width: 0;
+      padding: 0;
+      border-right: none;
+    }
+
+    .sb-title {
+      font-family: var(--vt);
+      font-size: 2.5rem;
+      color: var(--cyan);
+      text-shadow: 0 0 10px var(--cyan-glow);
+      margin-bottom: 2.5rem;
+      text-align: center;
+      letter-spacing: 3px;
+    }
+
+    .sb-item {
+      padding: 1.2rem 1rem;
+      cursor: pointer;
+      border: 1px solid transparent;
+      margin-bottom: 0.8rem;
+      transition: 0.2s;
+      font-size: 1.2rem;
+      position: relative;
+      background: rgba(57, 255, 20, 0.02);
+      clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
+    }
+
+    .sb-item:hover,
+    .sb-item.active {
+      background: var(--g);
+      color: #000;
+      text-shadow: none;
+      box-shadow: 0 0 15px var(--gglow);
+      font-weight: bold;
+      border-color: var(--g);
+    }
+
+    .sb-item.active::before {
+      content: '>';
+      position: absolute;
+      left: 10px;
+      color: #000;
+      text-shadow: none;
+    }
+
+    .sb-item.active {
+      padding-left: 2rem;
+    }
+
+    /* Main Content */
+    .main {
+      flex: 1;
+      padding: 3rem;
+      overflow-y: auto;
+      position: relative;
+      z-index: 10;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 1.2rem;
+      color: var(--g);
+      background: linear-gradient(180deg, rgba(0, 20, 0, 0.8) 0%, rgba(0, 0, 0, 0) 100%);
+      border-bottom: 1px solid var(--g);
+      box-shadow: 0 4px 20px rgba(57, 255, 20, 0.15);
+      padding: 1.5rem 3rem;
+      margin: -3rem -3rem 3rem -3rem;
+      font-weight: bold;
+      text-transform: uppercase;
+      text-shadow: 0 0 5px var(--gglow);
+    }
+
+    /* Modal Styles */
+    .cyber-modal-overlay {
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 5, 0, 0.85);
+      backdrop-filter: blur(8px);
+      z-index: 9999;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+    
+    .cyber-modal-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .cyber-modal {
+      background: rgba(0, 20, 0, 0.9);
+      border: 2px solid var(--g);
+      box-shadow: 0 0 30px rgba(57, 255, 20, 0.2), inset 0 0 20px rgba(0, 0, 0, 0.8);
+      padding: 3rem;
+      max-width: 500px;
+      width: 90%;
+      text-align: center;
+      transform: scale(0.9);
+      transition: transform 0.3s cubic-bezier(0.1, 0.8, 0.1, 1);
+      position: relative;
+    }
+
+    .cyber-modal::before, .cyber-modal::after {
+      content: '';
+      position: absolute;
+      width: 20px; height: 20px;
+    }
+    .cyber-modal::before {
+      top: -2px; left: -2px;
+      border-top: 3px solid var(--g); border-left: 3px solid var(--g);
+    }
+    .cyber-modal::after {
+      bottom: -2px; right: -2px;
+      border-bottom: 3px solid var(--g); border-right: 3px solid var(--g);
+    }
+
+    .cyber-modal-overlay.active .cyber-modal {
+      transform: scale(1);
+    }
+
+    .cyber-modal-title {
+      font-family: var(--vt);
+      font-size: 2.5rem;
+      color: var(--cyan);
+      text-shadow: 0 0 10px var(--cyan-glow);
+      margin-bottom: 1.5rem;
+      letter-spacing: 2px;
+    }
+
+    .cyber-modal-msg {
+      font-size: 1.2rem;
+      line-height: 1.6;
+      margin-bottom: 2rem;
+      color: var(--g);
+      white-space: pre-wrap;
+    }
+
+    .cyber-modal-btns {
+      display: flex;
+      gap: 15px;
+      justify-content: center;
+    }
+
+    .section {
+      display: none;
+    }
+
+    .section.active {
+      display: block;
+      animation: terminalOn 0.4s cubic-bezier(0.1, 0.8, 0.1, 1);
+    }
+
+    @keyframes terminalOn {
+      0% { opacity: 0; transform: scale(0.98) translateY(20px); filter: brightness(2); }
+      100% { opacity: 1; transform: scale(1) translateY(0); filter: brightness(1); }
+    }
+
+    /* Reusable UI Components */
+    .box {
+      border: 1px solid var(--gdim);
+      position: relative;
+      background: rgba(0, 20, 0, 0.5);
+      backdrop-filter: blur(3px);
+      padding: 2.5rem;
+      margin-bottom: 2rem;
+      box-shadow: inset 0 0 30px rgba(0,0,0,0.8), 0 0 15px rgba(57, 255, 20, 0.05);
+    }
+    
+    .box::before {
+      content: '';
+      position: absolute;
+      top: -1px; left: -1px;
+      width: 15px; height: 15px;
+      border-top: 2px solid var(--g);
+      border-left: 2px solid var(--g);
+    }
+
+    .box::after {
+      content: '';
+      position: absolute;
+      bottom: -1px; right: -1px;
+      width: 15px; height: 15px;
+      border-bottom: 2px solid var(--g);
+      border-right: 2px solid var(--g);
+    }
+
+    .blabel {
+      position: absolute;
+      top: -12px;
+      left: 20px;
+      background: var(--bg);
+      padding: 0 10px;
+      font-size: 1.1rem;
+      color: var(--cyan);
+      text-shadow: 0 0 8px var(--cyan-glow);
+      letter-spacing: 2px;
+      font-weight: bold;
+      border-left: 2px solid var(--cyan);
+      border-right: 2px solid var(--cyan);
+      z-index: 2;
+    }
+
+    /* Assessment Buttons */
+    .obtn {
+      background: rgba(0, 20, 0, 0.3);
+      border: 1px solid var(--gdim);
+      color: var(--g);
+      font-family: var(--mono);
+      padding: 18px 25px;
+      cursor: pointer;
+      text-align: left;
+      font-size: 1.2rem;
+      transition: 0.3s;
+      display: flex;
+      justify-content: space-between;
+      text-shadow: 0 0 5px var(--gglow);
+      margin-bottom: 15px;
+      position: relative;
+      overflow: hidden;
+      clip-path: polygon(0 0, calc(100% - 15px) 0, 100% 15px, 100% 100%, 0 100%);
+    }
+
+    .obtn::before {
+      content: '';
+      position: absolute;
+      top: 0; left: -100%; width: 100%; height: 100%;
+      background: linear-gradient(90deg, transparent, var(--gfaint), transparent);
+      transition: 0.4s;
+      z-index: -1;
+    }
+
+    .obtn:hover:not(:disabled) {
+      background: rgba(57, 255, 20, 0.1);
+      border-color: var(--g);
+      color: var(--g);
+      box-shadow: 0 0 15px var(--gfaint);
+    }
+
+    .obtn:hover:not(:disabled)::before {
+      left: 100%;
+    }
+
+    .obtn.completed {
+      border-color: var(--cyan);
+      color: var(--cyan);
+      text-shadow: 0 0 5px var(--cyan-glow);
+    }
+
+    .obtn.completed:hover {
+      background: rgba(0, 229, 255, 0.1);
+      border-color: var(--cyan);
+      box-shadow: 0 0 15px var(--cyan-glow);
+    }
+
+    .obtn:disabled {
+      cursor: default;
+      opacity: 0.5;
+    }
+
+    .cbtn {
+      background: rgba(0, 20, 0, 0.4);
+      border: 1px solid var(--g);
+      color: var(--g);
+      font-family: var(--vt);
+      font-size: 1.5rem;
+      padding: 10px 30px;
+      cursor: pointer;
+      text-shadow: 0 0 5px var(--gglow);
+      transition: 0.3s;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      box-shadow: inset 0 0 10px var(--gfaint);
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .cbtn::before {
+      content: '';
+      position: absolute;
+      top: 0; left: -100%; width: 100%; height: 100%;
+      background: linear-gradient(90deg, transparent, var(--gglow), transparent);
+      transition: 0.4s;
+      z-index: -1;
+    }
+
+    .cbtn:hover:not(:disabled) {
+      background: var(--g);
+      color: #000;
+      text-shadow: none;
+      box-shadow: 0 0 20px var(--gglow), inset 0 0 10px rgba(0,0,0,0.5);
+    }
+    
+    .cbtn:hover:not(:disabled)::before {
+      left: 100%;
+    }
+
+    .cbtn:disabled {
+      opacity: 0.5;
+      border-color: var(--gdim);
+      color: var(--gdim);
+      text-shadow: none;
+      box-shadow: none;
+    }
+
+    /* MCQ specific */
+    .opts {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      margin: 1.5rem 0;
+    }
+
+    .opt-btn {
+      background: rgba(0, 20, 0, 0.3);
+      border: 1px solid var(--gdim);
+      color: var(--g);
+      font-family: var(--mono);
+      padding: 18px;
+      cursor: pointer;
+      text-align: left;
+      font-size: 1.2rem;
+      transition: 0.3s;
+      text-shadow: 0 0 4px var(--gglow);
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .opt-btn::before {
+      content: '';
+      position: absolute;
+      top: 0; left: -100%; width: 100%; height: 100%;
+      background: linear-gradient(90deg, transparent, var(--gfaint), transparent);
+      transition: 0.4s;
+      z-index: -1;
+    }
+
+    .opt-btn:hover:not(:disabled) {
+      background: rgba(57, 255, 20, 0.1);
+      border-color: var(--g);
+      box-shadow: 0 0 15px var(--gfaint);
+    }
+    
+    .opt-btn:hover:not(:disabled)::before {
+      left: 100%;
+    }
+
+    .opt-btn.correct {
+      background: var(--g);
+      color: #000;
+      box-shadow: 0 0 20px var(--gglow);
+      text-shadow: none;
+      border-color: var(--g);
+      font-weight: bold;
+    }
+
+    .opt-btn:disabled {
+      cursor: default;
+    }
+
+    /* Coding specific */
+    .code-tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    .tab-btn {
+      background: rgba(0, 20, 0, 0.4);
+      border: 1px solid var(--gdim);
+      color: var(--gdim);
+      font-family: var(--mono);
+      padding: 10px 20px;
+      cursor: pointer;
+      font-size: 1.1rem;
+      transition: 0.3s;
+      clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+    }
+
+    .tab-btn:hover {
+      border-color: var(--g);
+      color: var(--g);
+      background: rgba(57, 255, 20, 0.1);
+    }
+
+    .tab-btn.active {
+      background: var(--g);
+      color: #000;
+      border-color: var(--g);
+      text-shadow: none;
+      box-shadow: 0 0 15px var(--gglow);
+      font-weight: bold;
+    }
+
+    textarea.code-area {
+      width: 100%;
+      height: 60vh;
+      background: rgba(0, 15, 0, 0.8);
+      color: var(--cyan);
+      border: 1px solid var(--cyan);
+      border-left: 4px solid var(--cyan);
+      font-family: var(--mono);
+      padding: 20px;
+      outline: none;
+      margin-bottom: 20px;
+      font-size: 1.2rem;
+      text-shadow: 0 0 5px var(--cyan-glow);
+      resize: vertical;
+      box-shadow: inset 0 0 20px rgba(0, 229, 255, 0.1);
+      transition: 0.3s;
+    }
+    
+    textarea.code-area:focus {
+      background: rgba(0, 25, 10, 0.9);
+      box-shadow: inset 0 0 30px rgba(0, 229, 255, 0.2), 0 0 15px rgba(0, 229, 255, 0.2);
+    }
+
+    .output-area {
+      background: #000;
+      color: var(--amber);
+      padding: 20px;
+      min-height: 120px;
+      border: 1px solid var(--gdim);
+      border-left: 4px solid var(--amber);
+      white-space: pre-wrap;
+      font-family: var(--mono);
+      font-size: 1.1rem;
+      text-shadow: 0 0 4px rgba(255, 179, 0, 0.5);
+      box-shadow: inset 0 0 15px rgba(255, 179, 0, 0.1);
+      position: relative;
+    }
+
+    .verdict-ACCEPTED {
+      color: var(--g);
+      text-shadow: 0 0 10px var(--gglow);
+      font-weight: bold;
+      animation: pulseGlow 2s infinite;
+    }
+
+    .verdict-WRONG_ANSWER {
+      color: var(--red);
+      text-shadow: 0 0 10px var(--red-glow);
+      font-weight: bold;
+    }
+
+    .verdict-COMPILE_ERROR {
+      color: var(--amber);
+      text-shadow: 0 0 10px rgba(255, 179, 0, 0.6);
+      font-weight: bold;
+    }
+    
+    @keyframes pulseGlow {
+      0%, 100% { text-shadow: 0 0 10px var(--gglow); }
+      50% { text-shadow: 0 0 25px var(--g); }
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 14px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #000;
+      border-left: 1px solid var(--gdim);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--gdim);
+      border: 1px solid #000;
+      background-clip: padding-box;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--g);
+      box-shadow: 0 0 10px var(--gglow);
+    }
+
+    /* Mobile Responsiveness */
+    @media (max-width: 768px) {
+      body { flex-direction: column; }
+      .sidebar { 
+        width: 100%; height: auto; min-height: 0; 
+        border-right: none; border-bottom: 2px solid var(--gdim); 
+        padding: 1rem; box-shadow: none; 
+        display: none; /* hidden by default on mobile */
+      }
+      .sidebar.collapsed { display: block; } /* shown when toggled on mobile */
+      .main { padding: 0.5rem; overflow-x: hidden; }
+      .topbar { flex-direction: column; align-items: flex-start; margin: -0.5rem -0.5rem 1rem -0.5rem; padding: 1rem; gap: 10px; font-size: 1rem; }
+      h1, .sb-title { font-size: 1.5rem !important; }
+      .quiz-view { grid-template-columns: 1fr; gap: 1rem; }
+      .code-view { grid-template-columns: 1fr; gap: 1rem; }
+      .mcq-options { grid-template-columns: 1fr; gap: 1rem; }
+      .assessments-grid, .challenges-grid { grid-template-columns: 1fr; }
+      .cyber-modal { padding: 1rem; max-width: 100%; max-height: 100vh; overflow-y: auto; }
+      #term-output { font-size: 0.9rem; }
+      #code-editor { min-height: 250px; }
+      #terminal-output { min-height: 150px; }
+      .cbtn { padding: 8px 12px; font-size: 1rem; }
+      
+      /* Specific structural fixes */
+      #c-main-box { flex-direction: column !important; gap: 15px !important; padding: 1rem; }
+      #c-left-panel { padding-right: 0 !important; border-right: none !important; border-bottom: 2px dashed var(--gdim); padding-bottom: 15px; width: 100%; }
+      #c-right-panel { width: 100%; }
+      textarea.code-area { height: 40vh; font-size: 1rem; padding: 10px; }
+      #results-unlocked > div { flex-direction: column !important; }
+      .box { padding: 1rem; }
+      .blabel { left: 10px; font-size: 0.9rem; }
+      .obtn { font-size: 1rem; padding: 12px; }
+      .opt-btn { font-size: 1rem; padding: 12px; }
+      #c-title { font-size: 1.4rem !important; }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="scanline"></div>
+
+  <div class="sidebar">
+    <div class="sb-title">TERMINAL</div>
+    <div class="sb-item active" onclick="nav('home')">[ OVERVIEW ]</div>
+    <div class="sb-item" onclick="nav('mcq')">[ MULTIPLE CHOICE ]</div>
+    <div class="sb-item" onclick="nav('coding')">[ CODING LAB ]</div>
+    <div class="sb-item" id="finish-btn" onclick="finishAssessment()" style="margin-top: auto; color: var(--gdim); border-color: var(--gdim); opacity: 0.5; pointer-events: none;">[ FINISH LOCKED ]</div>
+    <div class="sb-item" onclick="nav('results'); loadResults();" style="border-top: 1px solid var(--gdim); padding-top: 1.5rem;">[ RESULTS ]</div>
+  </div>
+
+  <div class="main">
+    <div class="topbar">
+      <div>
+        <button class="cbtn" onclick="document.querySelector('.sidebar').classList.toggle('collapsed')" style="font-size: 1rem; padding: 4px 10px; margin-right: 15px; border-color: var(--gdim);">[ MENU ]</button>
+        <span id="student-info">LOADING...</span>
+      </div>
+      <div>
+        <span id="timer-display" style="color: #ff3c3c; font-family: var(--vt); font-size: 2rem; margin-right: 20px; display: none;">[ T-MINUS --:-- ]</span>
+        <span id="clk">--:--:--</span>
+      </div>
+    </div>
+
+    <!-- HOME SECTION -->
+    <div id="sec-home" class="section active">
+      <h1 style="font-family:var(--vt); font-size:3.5rem; margin-bottom:2rem;" class="cursor">WELCOME, <span id="s-name" class="cyan-txt"></span></h1>
+      <div class="box">
+        <div class="blabel">AVAILABLE_ASSESSMENTS</div>
+        <p style="color:var(--g); margin-bottom:1.5rem; font-size: 1.1rem;">> Select an assessment to begin execution sequence.</p>
+        <div id="assessment-list" style="display:flex; flex-direction:column; gap:5px;"></div>
+      </div>
+    </div>
+
+    <!-- RESULTS SECTION -->
+    <div id="sec-results" class="section">
+      <h1 style="font-family:var(--vt); font-size:3.5rem; margin-bottom:2rem;" class="cursor">EVALUATION_REPORT</h1>
+      <div id="results-locked" class="box" style="display: none; text-align: center; padding: 4rem;">
+        <h2 style="font-family:var(--vt); font-size:4rem; color:var(--amber); text-shadow: 0 0 20px rgba(255,179,0,0.6); margin-bottom:1rem;">INCOMPLETE</h2>
+        <p style="font-size: 1.5rem; color: var(--g);">> COMPLETE AND FINISH THE ASSESSMENT TO VIEW RESULTS</p>
+      </div>
+      
+      <div id="results-unlocked" class="hidden">
+        <div style="display: flex; gap: 20px;">
+          <div class="box" style="flex: 1; text-align: center;">
+            <div class="blabel">MCQ_PERFORMANCE</div>
+            <div id="r-mcq-score" style="font-family: var(--vt); font-size: 5rem; color: var(--g); text-shadow: 0 0 15px var(--gglow); margin-top: 20px;">--/--</div>
+          </div>
+          <div class="box" style="flex: 2;">
+            <div class="blabel">CODING_SUBMISSIONS</div>
+            <div id="r-coding-list" style="margin-top: 15px; display: flex; flex-direction: column; gap: 10px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MCQ SECTION -->
+    <div id="sec-mcq" class="section">
+      <div id="mcq-container">
+        <h2 style="font-family:var(--vt); font-size:2.5rem; margin-bottom:1.5rem;" class="cursor">MULTIPLE CHOICE QUIZ
+        </h2>
+        <div class="box">
+          <div class="blabel" id="q-label">Q 1/X</div>
+          <p id="q-text" style="font-size:1.3rem; margin-bottom:1.5rem;">Please select an assessment from the Overview
+            tab.</p>
+          <pre id="q-code"
+            style="color:var(--amber); margin-bottom:1.5rem; font-family:var(--mono); white-space:pre-wrap; background: rgba(0,0,0,0.5); padding: 15px; border: 1px dashed var(--amber);"></pre>
+          <div class="opts" id="q-opts"></div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:2rem;">
+            <button class="cbtn" id="q-prev" onclick="prevMcq()" style="visibility: hidden;"><< PREV</button>
+            <span id="q-msg" style="font-size: 1.2rem; font-weight: bold;"></span>
+            <button class="cbtn" id="q-next" onclick="nextMcq()" disabled>NEXT >></button>
+          </div>
+        </div>
+      </div>
+      <div id="mcq-done" class="hidden box" style="display:none; text-align: center; padding: 4rem 2rem;">
+        <div class="blabel">RESULTS</div>
+        <h2
+          style="font-family:var(--vt); font-size:3rem; color:var(--cyan); margin-bottom: 1rem; text-shadow: 0 0 15px var(--cyan-glow);"
+          class="cursor">QUIZ SUBMITTED</h2>
+        <p style="font-size:1.5rem;">FINAL SCORE: <span id="mcq-score"
+            style="font-size: 2rem; color: var(--g); font-weight: bold;"></span> / <span id="mcq-total"
+            style="font-size: 2rem;"></span></p>
+        <button class="cbtn" onclick="nav('coding')" style="margin-top: 2rem;">PROCEED TO CODING LAB >></button>
+      </div>
+    </div>
+
+    <!-- CODING SECTION -->
+    <div id="sec-coding" class="section">
+      <h2 style="font-family:var(--vt); font-size:2.5rem; margin-bottom:1.5rem;" class="cursor">CODING CHALLENGES</h2>
+      <div id="c-main-box" class="box" style="display:flex; gap:30px; align-items:flex-start;">
+        <div class="blabel">LEETCODE_ENV</div>
+
+        <!-- Left Panel: Description -->
+        <div id="c-left-panel" style="flex:1; padding-right:15px; border-right:2px dashed var(--gdim);">
+          <div class="code-tabs" id="code-tabs"></div>
+          <h3 id="c-title" class="cyan-txt"
+            style="margin:10px 0 20px 0; font-size:1.8rem; border-bottom: 1px solid rgba(0, 229, 255, 0.3); padding-bottom: 10px;">
+            Please select an assessment</h3>
+          <p id="c-desc" style="margin-bottom:20px; font-size: 1.1rem; line-height:1.6;"></p>
+
+          <div id="c-details" style="display: none;">
+            <h4 class="amber-txt" style="margin-bottom:8px; font-size: 1.2rem;">Constraints:</h4>
+            <pre id="c-constraints"
+              style="color:var(--g); margin-bottom:20px; white-space:pre-wrap; font-size:1rem;"></pre>
+
+            <h4 class="amber-txt" style="margin-bottom:8px; font-size: 1.2rem;">Sample Input:</h4>
+            <pre id="c-s-in"
+              style="background:rgba(0,0,0,0.8); padding:15px; border:1px solid var(--gdim); margin-bottom:15px; color:var(--cyan); font-size: 1.1rem; box-shadow: inset 0 0 10px var(--cyan-glow);"></pre>
+
+            <h4 class="amber-txt" style="margin-bottom:8px; font-size: 1.2rem;">Sample Output:</h4>
+            <pre id="c-s-out"
+              style="background:rgba(0,0,0,0.8); padding:15px; border:1px solid var(--gdim); margin-bottom:20px; color:var(--cyan); font-size: 1.1rem; box-shadow: inset 0 0 10px var(--cyan-glow);"></pre>
+          </div>
+        </div>
+
+        <!-- Right Panel: Editor -->
+        <div id="c-right-panel" style="flex:1; display: none; flex-direction: column;">
+          <textarea id="c-editor" class="code-area" spellcheck="false"></textarea>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; gap:10px;">
+            <button class="cbtn" id="btn-run-code" onclick="runSampleCode()" style="flex:1; border-color: var(--amber); color: var(--amber);">[ RUN SAMPLE ]</button>
+            <button class="cbtn" id="btn-submit-code" onclick="submitCode()" style="flex:1;">[ SUBMIT CHALLENGE ]</button>
+            <span id="c-status" style="font-size: 1.2rem; min-width: 150px; text-align: right;"></span>
+          </div>
+
+          <div class="blabel" style="position:static; display:inline-block; margin-bottom:10px;">OUTPUT_CONSOLE</div>
+          <div id="c-out" class="output-area">Waiting for execution instructions...</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="cyber-modal-overlay" id="cyber-modal-overlay">
+    <div class="cyber-modal" id="cyber-modal-box">
+      <div class="cyber-modal-title" id="cyber-modal-title">SYSTEM_ALERT</div>
+      <div class="cyber-modal-msg" id="cyber-modal-msg"></div>
+      <div class="cyber-modal-btns" id="cyber-modal-btns"></div>
+    </div>
+  </div>
+
+  <script>
+    // --- CYBER MODAL OVERRIDES ---
+    function showCyberModal(msg, title = "SYSTEM_ALERT", buttons = []) {
+      return new Promise((resolve) => {
+        const overlay = document.getElementById('cyber-modal-overlay');
+        const box = document.getElementById('cyber-modal-box');
+        document.getElementById('cyber-modal-title').textContent = title;
+        document.getElementById('cyber-modal-msg').textContent = msg;
+        
+        const btnContainer = document.getElementById('cyber-modal-btns');
+        btnContainer.innerHTML = '';
+        
+        let color = 'var(--g)';
+        if (msg.includes('ERROR') || msg.includes('VIOLATION')) color = 'var(--red)';
+        else if (msg.includes('WARNING') || msg.includes('EXPIRED') || msg.includes('sure')) color = 'var(--amber)';
+        
+        box.style.borderColor = color;
+        document.getElementById('cyber-modal-title').style.color = color;
+        document.getElementById('cyber-modal-title').style.textShadow = `0 0 10px ${color}`;
+        
+        buttons.forEach(b => {
+          const btn = document.createElement('button');
+          btn.className = 'cbtn';
+          btn.textContent = b.text;
+          if (b.primary) {
+            btn.style.color = '#000';
+            btn.style.background = color;
+            btn.style.borderColor = color;
+            btn.style.textShadow = 'none';
+          }
+          btn.onclick = () => {
+            overlay.classList.remove('active');
+            resolve(b.value);
+          };
+          btnContainer.appendChild(btn);
+        });
+        
+        overlay.classList.add('active');
+      });
+    }
+
+    window.alert = function(msg) {
+      return showCyberModal(msg, "SYSTEM_ALERT", [{ text: "[ ACKNOWLEDGE ]", value: true, primary: true }]);
+    };
+
+    function cyberConfirm(msg) {
+      return showCyberModal(msg, "USER_PROMPT", [
+        { text: "[ CANCEL ]", value: false },
+        { text: "[ CONFIRM ]", value: true, primary: true }
+      ]);
+    }
+
+    // Time loop
+    setInterval(() => {
+      const n = new Date();
+      document.getElementById('clk').textContent = [n.getHours(), n.getMinutes(), n.getSeconds()].map(x => String(x).padStart(2, '0')).join(':');
+    }, 1000);
+
+    const student = JSON.parse(sessionStorage.getItem('student'));
+    let sessionId = sessionStorage.getItem('session_id');
+
+    if (!student) {
+      window.location.href = 'index.html';
+    } else {
+      document.getElementById('student-info').textContent = `AUTH_USER: ${student.roll_no} // STATUS: IDLE`;
+      document.getElementById('s-name').textContent = student.full_name;
+      if (document.getElementById('p-roll')) document.getElementById('p-roll').textContent = student.roll_no;
+      if (document.getElementById('p-version')) document.getElementById('p-version').textContent = student.version_code || 'UNASSIGNED';
+      loadAssessments();
+    }
+
+    function nav(id) {
+      if (id === 'coding' && currentVersion && !mcqFinished) {
+          alert('>>> ERROR: MUST COMPLETE AND SUBMIT MCQS FIRST.');
+          return;
+      }
+      document.querySelectorAll('.section').forEach(e => e.classList.remove('active'));
+      document.querySelectorAll('.sb-item').forEach(e => e.classList.remove('active'));
+      document.getElementById(`sec-${id}`).classList.add('active');
+      if(window.event && window.event.target) window.event.target.classList.add('active');
+    }
+
+    // Assessment Selection
+    let currentVersion = null;
+
+    function loadAssessments() {
+      if(!student) return;
+      fetch('/api/student/assessments/' + student.roll_no)
+        .then(r => r.json())
+        .then(d => {
+          const list = document.getElementById('assessment-list');
+          list.innerHTML = '';
+          if(!d.assessments || d.assessments.length === 0) {
+            list.innerHTML = '<span class="red-txt" style="font-size: 1.2rem; font-weight: bold;">NO ASSESSMENTS AVAILABLE IN DATABASE</span>';
+            return;
+          }
+          d.assessments.forEach(a => {
+            const isCompleted = a.session_status === 'SUBMITTED';
+            const statusText = isCompleted ? `COMPLETED` : (a.mcq_score !== null ? `IN PROGRESS` : `PENDING`);
+
+            const btn = document.createElement('button');
+            btn.className = 'obtn' + (isCompleted ? ' completed' : '');
+            btn.innerHTML = `<span>[ ${a.version_code} ] ${a.total_questions} MODULES</span> <span>[ ${statusText} ]</span>`;
+            
+            if (isCompleted) {
+              btn.style.opacity = '0.5';
+              btn.style.pointerEvents = 'none';
+              btn.onclick = null;
+            } else {
+              btn.onclick = () => startAssessment(a.version_code);
+            }
+            
+            list.appendChild(btn);
+          });
+        });
+    }
+
+    function startAssessment(version_code) {
+      fetch('/api/start_assessment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roll_no: student.roll_no, version_code })
+      }).then(r=>r.json()).then(data => {
+        if(data.success) {
+          sessionId = data.session_id;
+          sessionStorage.setItem('session_id', sessionId);
+          currentVersion = version_code;
+          
+          // Restore states for the session
+          mcqFinished = data.mcq_submitted || false;
+          codingSubmitted.clear();
+          sessionStorage.setItem('coding_submissions', JSON.stringify(data.coding_submissions || []));
+          
+          checkFinishStatus();
+          
+          document.getElementById('student-info').textContent = `AUTH_USER: ${student.roll_no} // SESSION: ${sessionId}`;
+          alert('>>> ASSESSMENT ' + version_code + ' INITIATED. PROCEED TO MODULES.');
+          startTimerSync();
+          loadAssessmentData(version_code);
+        }
+      });
+    }
+
+    function loadResults() {
+      if(!student) return;
+      fetch('/api/student/results/' + student.roll_no)
+        .then(r => r.json())
+        .then(data => {
+          if(!data.published) {
+            document.getElementById('results-locked').style.display = 'block';
+            document.getElementById('results-unlocked').classList.add('hidden');
+          } else {
+            document.getElementById('results-locked').style.display = 'none';
+            document.getElementById('results-unlocked').classList.remove('hidden');
+            
+            // Render MCQ
+            const session = data.sessions && data.sessions.length > 0 ? data.sessions[0] : null;
+            if(session && session.mcq_score !== null) {
+              document.getElementById('r-mcq-score').textContent = `${session.mcq_score}/${session.total_mcq}`;
+            } else {
+              document.getElementById('r-mcq-score').textContent = `0/0`;
+            }
+            
+            // Render Coding
+            const clist = document.getElementById('r-coding-list');
+            clist.innerHTML = '';
+            if(data.coding && data.coding.length > 0) {
+              data.coding.forEach(c => {
+                const color = c.verdict === 'ACCEPTED' ? 'var(--g)' : (c.verdict === 'COMPILE_ERROR' ? 'var(--amber)' : 'var(--red)');
+                clist.innerHTML += `<div style="background: rgba(0,0,0,0.5); padding: 10px; border: 1px solid ${color}; display: flex; justify-content: space-between;">
+                  <span>${c.challenge_code} | ${c.title}</span>
+                  <span style="color: ${color}; font-weight: bold;">[ ${c.verdict} ] ${c.cases_passed||0}/${c.total_cases||0}</span>
+                </div>`;
+              });
+            } else {
+              clist.innerHTML = '<span class="red-txt">> NO SUBMISSIONS DETECTED</span>';
+            }
+          }
+        });
+    }
+function loadAssessmentData(v_code) {
+  // Load MCQs
+  if (mcqFinished) {
+      document.getElementById('mcq-container').style.display = 'none';
+      document.getElementById('mcq-done').classList.remove('hidden');
+      document.getElementById('mcq-done').style.display = 'block';
+      document.getElementById('mcq-score').textContent = 'ALREADY';
+      document.getElementById('mcq-total').textContent = 'SUBMITTED';
+  } else {
+      document.getElementById('mcq-container').style.display = 'block';
+      document.getElementById('mcq-done').style.display = 'none';
+      fetch(`/api/mcq/${v_code}`).then(r => r.json()).then(d => {
+        mcqData = d.questions || [];
+        mcqIndex = 0;
+        mcqAnswers = [];
+        if(mcqData.length > 0) loadMcq();
+        else document.getElementById('q-text').textContent = "NO MCQ QUESTIONS FOUND IN MODULE.";
+      });
+  }
+
+  // Load Coding Challenges
+  fetch(`/api/coding/${v_code}`).then(r => r.json()).then(d => {
+    codingData = d.challenges || [];
+    codingIndex = 0;
+    
+    // Restore submitted coding challenges
+    const submittedCodes = JSON.parse(sessionStorage.getItem('coding_submissions') || '[]');
+    codingSubmitted.clear();
+    codingData.forEach((c, i) => {
+        if (submittedCodes.includes(c.challenge_code)) {
+            codingSubmitted.add(i);
+        }
+    });
+
+    if(codingData.length > 0) setupCodingTabs();
+    else document.getElementById('c-title').textContent = "NO CODING CHALLENGES FOUND.";
+  });
+}
+
+// --- MCQ LOGIC ---
+let mcqData = [];
+let mcqIndex = 0;
+let mcqAnswers = [];
+let mcqFinished = false;
+
+function loadMcq() {
+  const q = mcqData[mcqIndex];
+  document.getElementById('q-label').textContent = `Q ${mcqIndex + 1}/${mcqData.length} | ${q.topic || 'GENERAL'}`;
+  document.getElementById('q-text').textContent = q.question_text;
+  
+  const qc = document.getElementById('q-code');
+  if(q.code_snippet) { qc.style.display = 'block'; qc.textContent = q.code_snippet; }
+  else { qc.style.display = 'none'; }
+  
+  document.getElementById('q-msg').textContent = '';
+  document.getElementById('q-next').disabled = !mcqAnswers[mcqIndex];
+  document.getElementById('q-next').textContent = mcqIndex === mcqData.length - 1 ? 'SUBMIT >>' : 'NEXT >>';
+  
+  const prevBtn = document.getElementById('q-prev');
+  if (prevBtn) {
+    prevBtn.style.visibility = mcqIndex > 0 ? 'visible' : 'hidden';
+  }
+  
+  const optsDiv = document.getElementById('q-opts');
+  optsDiv.innerHTML = '';
+  const opts = [q.opt_a, q.opt_b, q.opt_c, q.opt_d];
+  
+  opts.forEach((optText, i) => {
+    if(!optText) return;
+    const letter = ['A','B','C','D'][i];
+    const btn = document.createElement('button');
+    btn.className = 'opt-btn';
+    if (mcqAnswers[mcqIndex] && mcqAnswers[mcqIndex].selected_opt === i) {
+      btn.classList.add('correct');
+    }
+    btn.innerHTML = `[${letter}] ${optText}`;
+    btn.onclick = () => pickMcq(i, btn);
+    optsDiv.appendChild(btn);
+  });
+}
+
+function pickMcq(optIndex, btn) {
+  document.querySelectorAll('.opt-btn').forEach(b => b.classList.remove('correct'));
+  btn.classList.add('correct');
+  
+  mcqAnswers[mcqIndex] = { q_id: mcqData[mcqIndex].id, selected_opt: optIndex };
+  
+  document.getElementById('q-msg').textContent = `> SELECTION RECORDED`;
+  document.getElementById('q-next').disabled = false;
+}
+
+function prevMcq() {
+  if (mcqIndex > 0) {
+    mcqIndex--;
+    loadMcq();
+  }
+}
+
+function nextMcq() {
+  if (mcqIndex < mcqData.length - 1) {
+    mcqIndex++;
+    loadMcq();
+  } else {
+    fetch('/api/submit_mcq', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ session_id: sessionId, answers: mcqAnswers, total_mcq: mcqData.length })
+    }).then(r=>r.json()).then(data => {
+      document.getElementById('mcq-container').style.display = 'none';
+      const d = document.getElementById('mcq-done');
+      d.classList.remove('hidden');
+      d.style.display = 'block';
+      document.getElementById('mcq-score').textContent = data.score;
+      document.getElementById('mcq-total').textContent = data.total;
+      mcqFinished = true;
+      checkFinishStatus();
+      loadAssessments(); // Refresh assessment status
+    });
+  }
+}
+
+// --- CODING LOGIC ---
+let codingData = [];
+let codingIndex = 0;
+let codingSubmitted = new Set();
+
+function setupCodingTabs() {
+  const tabs = document.getElementById('code-tabs');
+  tabs.innerHTML = '';
+  codingData.forEach((c, i) => {
+    const btn = document.createElement('button');
+    let isSub = codingSubmitted.has(i) ? ' [✓]' : '';
+    btn.className = `tab-btn ${i === codingIndex ? 'active' : ''}`;
+    btn.textContent = `PROB_0${i + 1}${isSub}`;
+    btn.onclick = () => { codingIndex = i; loadCoding(); setupCodingTabs(); };
+    tabs.appendChild(btn);
+  });
+  loadCoding();
+  checkFinishStatus();
+}
+
+function loadCoding() {
+  const c = codingData[codingIndex];
+  
+  if (!c) {
+    document.getElementById('c-title').textContent = "Please select an assessment";
+    document.getElementById('c-desc').textContent = "";
+    document.getElementById('c-details').style.display = 'none';
+    document.getElementById('c-right-panel').style.display = 'none';
+    document.getElementById('c-left-panel').style.borderRight = 'none';
+    return;
+  }
+
+  document.getElementById('c-details').style.display = 'block';
+  document.getElementById('c-right-panel').style.display = 'block';
+  document.getElementById('c-left-panel').style.borderRight = '2px dashed var(--gdim)';
+  document.getElementById('c-title').textContent = c.title + ` [${c.challenge_code}]`;
+  document.getElementById('c-desc').innerHTML = c.description.replace(/\n/g, '<br>');
+  document.getElementById('c-constraints').textContent = c.constraints || 'None';
+  document.getElementById('c-s-in').textContent = c.sample_input || 'None';
+  document.getElementById('c-s-out').textContent = c.sample_output || 'None';
+  document.getElementById('c-details').style.display = 'block';
+  document.getElementById('c-right-panel').style.display = 'flex';
+  
+  const editor = document.getElementById('c-editor');
+  
+  if (codingSubmitted.has(codingIndex)) {
+      editor.disabled = true;
+      document.getElementById('btn-run-code').disabled = true;
+      document.getElementById('btn-submit-code').disabled = true;
+      document.getElementById('c-out').textContent = '> Challenge already submitted and locked.';
+      editor.value = '/* CODE LOCKED */';
+      
+      fetch(`/api/autosave/${sessionId}/${c.challenge_code}`).then(r=>r.json()).then(data => { if(data.code) editor.value = data.code; });
+      return;
+  } else {
+      editor.disabled = false;
+      document.getElementById('btn-run-code').disabled = false;
+      document.getElementById('btn-submit-code').disabled = false;
+  }
+
+  editor.value = 'Loading draft...';
+  document.getElementById('c-out').textContent = 'Waiting for execution instructions...';
+  document.getElementById('c-status').textContent = '';
+  document.getElementById('c-status').className = '';
+
+  // Fetch Auto-save
+  fetch(`/api/autosave/${sessionId}/${c.challenge_code}`)
+    .then(r=>r.json())
+    .then(data => {
+      editor.value = data.code || c.starter_code || '#include <stdio.h>\n\nint main() {\n    // Write C code here\n    return 0;\n}';
+    }).catch(e => {
+      editor.value = c.starter_code || '#include <stdio.h>\n\nint main() {\n    // Write C code here\n    return 0;\n}';
+    });
+}
+
+function runSampleCode() {
+  const c = codingData[codingIndex];
+  const code = document.getElementById('c-editor').value;
+  const out = document.getElementById('c-out');
+  const statusEl = document.getElementById('c-status');
+  
+  out.textContent = '> Compiling code and executing sample input...';
+  statusEl.textContent = 'RUNNING...';
+  statusEl.style.color = 'var(--amber)';
+  statusEl.className = '';
+  
+  fetch('/api/run_code', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ challenge_code: c.challenge_code, code })
+  }).then(r=>r.json()).then(data => {
+    statusEl.textContent = `VERDICT: ${data.verdict}`;
+    statusEl.className = `verdict-${data.verdict}`;
+    out.textContent = data.output || "> Execution Completed.";
+  }).catch(e => {
+    out.textContent = '> Fatal Server Error.';
+    statusEl.textContent = 'SYSTEM_ERROR';
+  });
+}
+
+function submitCode() {
+  const c = codingData[codingIndex];
+  const code = document.getElementById('c-editor').value;
+  const out = document.getElementById('c-out');
+  const statusEl = document.getElementById('c-status');
+  
+  out.textContent = '> Compiling code and executing hidden test cases...';
+  statusEl.textContent = 'EVALUATING...';
+  statusEl.style.color = 'var(--g)';
+  statusEl.className = '';
+  
+  fetch('/api/submit_code', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ session_id: sessionId, challenge_code: c.challenge_code, code })
+  }).then(r=>r.json()).then(data => {
+    statusEl.textContent = `VERDICT: ${data.verdict} [${data.cases_passed||0}/${data.total_cases||0}]`;
+    statusEl.className = `verdict-${data.verdict}`;
+    
+    if(data.verdict === 'COMPILE_ERROR') {
+      out.textContent = data.output;
+    } else if(data.verdict === 'ACCEPTED') {
+      out.textContent = "> Submission Successful.\n> All hidden test cases passed. Recorded to database.";
+    } else {
+      out.textContent = data.details || "> Execution Failed on hidden test cases.";
+    }
+    
+    // Mark this challenge as submitted
+    codingSubmitted.add(codingIndex);
+    setupCodingTabs(); // Refresh tabs to show checkmark
+    checkFinishStatus(); // Check if ready to finish
+  }).catch(e => {
+    out.textContent = '> Fatal Server Error.';
+    statusEl.textContent = 'SYSTEM_ERROR';
+  });
+}
+
+function checkFinishStatus() {
+  const btn = document.getElementById('finish-btn');
+  if (!btn) return;
+  
+  // If there are no assessments loaded yet, keep it locked
+  if (!sessionId) {
+    btn.style.opacity = '0.5';
+    btn.style.pointerEvents = 'none';
+    btn.style.color = 'var(--gdim)';
+    btn.style.borderColor = 'var(--gdim)';
+    btn.textContent = '[ FINISH LOCKED ]';
+    return;
+  }
+
+  // MCQs must be finished, and all coding challenges must have at least one submission
+  if (mcqFinished && codingData.length > 0 && codingSubmitted.size === codingData.length) {
+    btn.style.opacity = '1';
+    btn.style.pointerEvents = 'auto';
+    btn.style.color = 'var(--amber)';
+    btn.style.borderColor = 'var(--amber)';
+    btn.textContent = '[ FINISH ASSESSMENT ]';
+  } else {
+    btn.style.opacity = '0.5';
+    btn.style.pointerEvents = 'none';
+    btn.style.color = 'var(--gdim)';
+    btn.style.borderColor = 'var(--gdim)';
+    btn.textContent = '[ FINISH LOCKED ]';
+  }
+}
+
+async function finishAssessment(force = false) {
+  if (!sessionId) {
+    if(!force) window.alert("No active session to finish.");
+    return;
+  }
+  
+  const confirmed = force || await cyberConfirm("Are you sure you want to finish the assessment? This will lock your submission.");
+  
+  if (confirmed) {
+    fetch('/api/finish_assessment', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ session_id: sessionId })
+    }).then(r=>r.json()).then(data => {
+      if (data.success) {
+        alert('>>> ASSESSMENT COMPLETED. RESULTS GENERATED.');
+        document.getElementById('finish-btn').textContent = '[ EXAM FINISHED ]';
+        document.getElementById('finish-btn').style.pointerEvents = 'none';
+        document.getElementById('finish-btn').style.color = 'var(--g)';
+        document.getElementById('finish-btn').style.borderColor = 'var(--g)';
+        clearInterval(timerInterval);
+        document.getElementById('timer-display').style.display = 'none';
+        nav('results');
+        loadResults();
+        loadAssessments();
+      }
+    });
+  }
+}
+
+// --- ANTI-CHEAT & PROCTORING ---
+document.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  // Silently block right click
+});
+
+document.getElementById('c-editor').addEventListener('paste', e => {
+  e.preventDefault();
+  window.alert('[ SECURITY_VIOLATION ]\nPasting code is strictly prohibited during the assessment.')
+  .then(() => {
+    if (sessionId) {
+      fetch('/api/log_violation', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ session_id: sessionId, event_type: 'PASTE_ATTEMPT', details: 'User attempted to paste code into the editor.' })
+      });
+    }
+  });
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && sessionId) {
+    window.alert('[ SECURITY_VIOLATION ]\nTAB SWITCH DETECTED. This incident has been logged and reported to the administrator.')
+    .then(() => {
+      fetch('/api/log_violation', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ session_id: sessionId, event_type: 'TAB_SWITCH', details: 'User switched tabs or minimized browser.' })
+      });
+    });
+  }
+});
+
+window.addEventListener('pagehide', () => {
+  if (sessionId) {
+    const data = JSON.stringify({ session_id: sessionId, event_type: 'TAB_CLOSED', details: 'User closed the assessment tab or navigated away.' });
+    navigator.sendBeacon('/api/log_violation', new Blob([data], { type: 'application/json' }));
+  }
+});
+
+// --- AUTO-SAVE ENGINE ---
+let saveTimeout;
+document.getElementById('c-editor').addEventListener('input', (e) => {
+  clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(() => {
+    if(!sessionId || !codingData[codingIndex]) return;
+    const c = codingData[codingIndex];
+    fetch('/api/autosave', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ session_id: sessionId, challenge_code: c.challenge_code, saved_code: e.target.value })
+    });
+  }, 2000); // 2 seconds debounce
+});
+
+// --- TIMER ENGINE ---
+let timerInterval;
+function startTimerSync() {
+  clearInterval(timerInterval);
+  document.getElementById('timer-display').style.display = 'inline';
+  
+  function syncTimer() {
+    if(!sessionId) return;
+    fetch('/api/timer_sync/' + sessionId)
+      .then(r=>r.json())
+      .then(data => {
+        if(data.status === 'COMPLETED') {
+          clearInterval(timerInterval);
+          document.getElementById('timer-display').style.display = 'none';
+          return;
+        }
+        let tr = data.time_remaining;
+        if(tr <= 0) {
+          document.getElementById('timer-display').textContent = `[ T-MINUS 00:00 ]`;
+          alert('[ TIME_EXPIRED ]\nThe assessment duration has concluded. Auto-submitting...');
+          finishAssessment(true);
+        } else {
+          let mins = Math.floor(tr / 60);
+          let secs = tr % 60;
+          document.getElementById('timer-display').textContent = `[ T-MINUS ${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')} ]`;
+        }
+      });
+  }
+  
+  syncTimer(); // Initial sync
+  timerInterval = setInterval(syncTimer, 10000); // Sync every 10 seconds
+}
+  </script>
+</body>
+
+</html>
