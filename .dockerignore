@@ -1,0 +1,14 @@
+# Dependencies are installed for the container platform by the Dockerfile.
+node_modules/
+
+# Git metadata, deployment state and local configuration are not runtime files.
+.git/
+.vercel/
+.env
+.env.*
+!.env.example
+
+# Local package-manager logs do not belong in the image.
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
