@@ -1,6 +1,0 @@
-Pseudo-terminal will not be allocated because stdin is not a terminal.
-Warning: Permanently added 'serveo.net' (RSA) to the list of known hosts.
-[32mForwarding HTTP traffic from https://fbf70c35838faedd-39-34-188-77.serveousercontent.com
-[0m[33mTip (1): Create an account to reserve names. Pro removes the warning page: https://console.serveo.net/settings?n=1&src=ssh_nudge&v=A
-[0m[33mPort forwarding for fbf70c35838faedd-39-34-188-77.serveousercontent.com expired
-[0mConnection to serveo.net closed by remote host.
