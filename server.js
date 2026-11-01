@@ -1,6 +1,7 @@
 const express = require('express');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
+const { getSubmissions } = require('./lib/submissions');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process'); // No longer needed, kept for reference but unused
@@ -427,18 +428,7 @@ app.post('/api/finish_assessment', async (req, res) => {
 // Admin: Fetch Submissions
 app.get('/api/admin/submissions', async (req, res) => {
     try {
-        const [sessions] = await pool.query(`
-            SELECT qs.id as session_id, qs.roll_no, st.full_name, qs.mcq_score, qs.total_mcq, qs.submitted_at
-            FROM quiz_sessions qs
-            JOIN students st ON qs.roll_no = st.roll_no
-            WHERE qs.status = 'SUBMITTED'
-            ORDER BY qs.submitted_at DESC
-        `);
-
-        for (let s of sessions) {
-            const [codes] = await pool.query('SELECT challenge_code, verdict, cases_passed, total_cases, submitted_code, compiler_output FROM code_submissions WHERE session_id = ?', [s.session_id]);
-            s.coding = codes;
-        }
+        const sessions = await getSubmissions(pool);
 
         res.json({ success: true, submissions: sessions });
     } catch (e) {
