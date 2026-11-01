@@ -1,2 +1,8 @@
 .vercel
 node_modules/
+
+# Generated code-run files and local tunnel output
+/tmp/code_*.c
+/tmp/run_*.c
+/localrun.txt
+/serveo.txt
