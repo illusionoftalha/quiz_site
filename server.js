@@ -117,6 +117,7 @@ app.post('/api/start_assessment', studentOnly, async (req, res) => {
         // Check if an active session already exists
         const [existing] = await pool.query('SELECT * FROM quiz_sessions WHERE roll_no = ? AND version_code = ? ORDER BY id DESC LIMIT 1', [roll_no, version_code]);
         if (existing.length > 0) {
+            if(existing[0].status!=='IN_PROGRESS' || Date.now()-new Date(existing[0].started_at).getTime()>=3600000)return res.status(409).json({error:'Session submitted or timed out'});
             const session_id = existing[0].id;
             const [submissions] = await pool.query('SELECT challenge_code FROM code_submissions WHERE session_id = ?', [session_id]);
             const coding_submissions = submissions.map(s => s.challenge_code);
@@ -124,7 +125,7 @@ app.post('/api/start_assessment', studentOnly, async (req, res) => {
             return res.json({ 
                 success: true, 
                 session_id: session_id, 
-                session_token: existing[0].session_token,
+                // Never return the legacy session token; the account cookie handles authentication.
                 mcq_submitted: existing[0].mcq_score !== null,
                 coding_submissions: coding_submissions
             });
@@ -146,6 +147,8 @@ app.post('/api/start_assessment', studentOnly, async (req, res) => {
 // 2. Fetch MCQ Questions
 app.get('/api/mcq/:version_code', studentOnly, async (req, res) => {
     try {
+        const [assigned]=await pool.query("SELECT 1 FROM quiz_sessions WHERE roll_no=? AND version_code=? AND status='IN_PROGRESS' AND started_at>DATE_SUB(NOW(),INTERVAL 1 HOUR) LIMIT 1",[req.principal.subject,req.params.version_code]);
+        if(!assigned.length)return res.status(403).json({error:'Assessment not started'});
         const { version_code } = req.params;
         const [questions] = await pool.query('SELECT id, q_number, topic, question_text, code_snippet, option_a as opt_a, option_b as opt_b, option_c as opt_c, option_d as opt_d FROM mcq_questions WHERE version_code = ? ORDER BY q_number', [version_code]);
         res.json({ questions });
@@ -183,6 +186,8 @@ app.post('/api/submit_mcq', studentOnly,ownSession,active, async (req, res) => {
 // 4. Fetch Coding Challenges
 app.get('/api/coding/:version_code', studentOnly, async (req, res) => {
     try {
+        const [assigned]=await pool.query("SELECT 1 FROM quiz_sessions WHERE roll_no=? AND version_code=? AND status='IN_PROGRESS' AND mcq_score IS NOT NULL AND started_at>DATE_SUB(NOW(),INTERVAL 1 HOUR) LIMIT 1",[req.principal.subject,req.params.version_code]);
+        if(!assigned.length)return res.status(403).json({error:'Complete assigned MCQs first'});
         const { version_code } = req.params;
         const [challenges] = await pool.query('SELECT challenge_code, title, description, constraints_txt, sample_input, sample_output FROM coding_challenges WHERE version_code = ?', [version_code]);
         res.json({ challenges });
@@ -226,7 +231,12 @@ async function runWithPiston(code, inputData = '') {
 app.post('/api/submit_code', studentOnly,ownSession,active, async (req, res) => {
     try {
         const { session_id, challenge_code, code } = req.body;
-        
+        if(typeof code!=='string'||code.length>20000)return res.status(400).json({error:'Invalid code'});
+        if(req.quizSession.mcq_score===null)return res.status(403).json({error:'Complete MCQs first'});
+        const [owned]=await pool.query('SELECT 1 FROM coding_challenges WHERE challenge_code=? AND version_code=?',[challenge_code,req.quizSession.version_code]);
+        if(!owned.length)return res.status(403).json({error:'Challenge not assigned'});
+        const [prior]=await pool.query('SELECT id FROM code_submissions WHERE session_id=? AND challenge_code=? LIMIT 1',[session_id,challenge_code]);
+        if(prior.length)return res.status(409).json({error:'Already submitted'});
         // Compile Check via Piston
         const compileCheck = await runWithPiston(code, '');
         
@@ -262,7 +272,7 @@ app.post('/api/submit_code', studentOnly,ownSession,active, async (req, res) => 
                 casesPassed++;
             } else {
                 finalVerdict = 'WRONG_ANSWER';
-                firstFailedOutput = `[ INPUT ]\n${input}\n\n[ EXPECTED OUTPUT ]\n${expected}\n\n[ ACTUAL OUTPUT ]\n${actual}`;
+                firstFailedOutput = 'Wrong answer on hidden test case';
                 break;
             }
         }
@@ -285,7 +295,9 @@ app.post('/api/submit_code', studentOnly,ownSession,active, async (req, res) => 
 app.post('/api/run_code', studentOnly, async (req, res) => {
     try {
         const { challenge_code, code } = req.body;
-        
+        if(typeof code!=='string'||code.length>20000)return res.status(400).json({error:'Invalid code'});
+        const [owned]=await pool.query("SELECT 1 FROM coding_challenges c JOIN quiz_sessions s ON s.version_code=c.version_code WHERE c.challenge_code=? AND s.roll_no=? AND s.status='IN_PROGRESS' AND s.mcq_score IS NOT NULL AND s.started_at>DATE_SUB(NOW(),INTERVAL 1 HOUR) LIMIT 1",[challenge_code,req.principal.subject]);
+        if(!owned.length)return res.status(403).json({error:'Challenge not assigned'});
         // Fetch sample input
         const [ch] = await pool.query('SELECT sample_input, sample_output FROM coding_challenges WHERE challenge_code = ?', [challenge_code]);
         if (ch.length === 0) return res.status(404).json({ error: 'Challenge not found' });
@@ -313,6 +325,9 @@ app.post('/api/run_code', studentOnly, async (req, res) => {
 app.post('/api/autosave', studentOnly,ownSession,active, async (req, res) => {
     try {
         const { session_id, challenge_code, saved_code } = req.body;
+        if(typeof saved_code!=='string'||saved_code.length>20000)return res.status(400).json({error:'Invalid draft'});
+        const [allowed]=await pool.query('SELECT 1 FROM coding_challenges WHERE challenge_code=? AND version_code=?',[challenge_code,req.quizSession.version_code]);
+        if(!allowed.length)return res.status(403).json({error:'Challenge not assigned'});
         await pool.query(
             'INSERT INTO auto_saves (session_id, challenge_code, saved_code) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE saved_code = ?',
             [session_id, challenge_code, saved_code, saved_code]
@@ -367,33 +382,19 @@ app.post('/api/log_violation', studentOnly,ownSession, async (req, res) => {
 });
 
 // Timer Sync
-app.get('/api/timer_sync/:session_id', studentOnly,ownSession, async (req, res) => {
-    try {
-        const { session_id } = req.params;
-        const [rows] = await pool.query('SELECT time_remaining, status FROM quiz_sessions WHERE id = ?', [session_id]);
-        if (rows.length === 0) return res.status(404).json({ error: 'Session not found' });
-        
-        let tr = rows[0].time_remaining;
-        if (rows[0].status === 'IN_PROGRESS' && tr > 0) {
-            // Very naive countdown implementation on fetch for now, a proper implementation would use background workers or calculate delta from started_at.
-            // Since we sync every 10 seconds, we can just decrease it by 10.
-            // Actually, best to let the client decrement and server just validates or we just return the current value.
-            // Let's implement a simple tick on the server side when this is called.
-            tr -= 10;
-            if (tr < 0) tr = 0;
-            await pool.query('UPDATE quiz_sessions SET time_remaining = ? WHERE id = ?', [tr, session_id]);
-        }
-        res.json({ time_remaining: tr, status: rows[0].status });
-    } catch (e) {
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
+app.get('/api/timer_sync/:session_id', studentOnly,ownSession, (req,res)=>{const remaining=Math.max(0,Math.ceil((new Date(req.quizSession.started_at).getTime()+3600000-Date.now())/1000));res.json({time_remaining:remaining,status:req.quizSession.status});});
 
 // Finish Assessment
 app.post('/api/finish_assessment', studentOnly,ownSession, async (req, res) => {
     try {
         const { session_id } = req.body;
-        await pool.query('UPDATE quiz_sessions SET status = ?, submitted_at = CURRENT_TIMESTAMP WHERE id = ?', ['SUBMITTED', session_id]);
+        if(req.quizSession.status!=='IN_PROGRESS')return res.status(409).json({error:'Already submitted'});
+        const [required]=await pool.query('SELECT challenge_code FROM coding_challenges WHERE version_code=?',[req.quizSession.version_code]);
+        const [done]=await pool.query('SELECT DISTINCT challenge_code FROM code_submissions WHERE session_id=?',[session_id]);
+        const expired=Date.now()-new Date(req.quizSession.started_at).getTime()>=3600000;
+        if(!expired&&(req.quizSession.mcq_score===null||done.length<required.length))return res.status(409).json({error:'Complete all modules first'});
+        const [updated]=await pool.query("UPDATE quiz_sessions SET status='SUBMITTED',submitted_at=NOW() WHERE id=? AND roll_no=? AND status='IN_PROGRESS'",[session_id,req.principal.subject]);
+        if(!updated.affectedRows)return res.status(409).json({error:'Already submitted'});
         
         // Fetch session data to send WhatsApp notification
         try {
