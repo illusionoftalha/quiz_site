@@ -1117,7 +1117,7 @@ function nextMcq() {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ session_id: sessionId, answers: mcqAnswers, total_mcq: mcqData.length })
-    }).then(r=>r.json()).then(data => {
+    }).then(async r => { const data = await r.json(); if (!r.ok || !data.success) throw Error(data.error || 'MCQ submission rejected'); return data; }).then(data => {
       document.getElementById('mcq-container').style.display = 'none';
       const d = document.getElementById('mcq-done');
       d.classList.remove('hidden');
@@ -1132,7 +1132,7 @@ function nextMcq() {
       document.getElementById('mcq-total').textContent = data.total;
       checkFinishStatus();
       loadAssessments(); // Refresh assessment status
-    });
+    }).catch(error => {document.getElementById('q-msg').textContent = '> '+error.message;});
   }
 }
 
@@ -1252,7 +1252,7 @@ function submitCode() {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ session_id: sessionId, challenge_code: c.challenge_code, code })
-  }).then(r=>r.json()).then(data => {
+  }).then(async r => { const data = await r.json(); if (!r.ok || !data.verdict) throw Error(data.error || 'Submission rejected'); return data; }).then(data => {
     statusEl.textContent = `VERDICT: ${data.verdict} [${data.cases_passed||0}/${data.total_cases||0}]`;
     statusEl.className = `verdict-${data.verdict}`;
     
@@ -1264,13 +1264,14 @@ function submitCode() {
       out.textContent = data.details || "> Execution Failed on hidden test cases.";
     }
     
-    // Mark this challenge as submitted
+    // A graded verdict, including a wrong answer, is recorded as a submission.
+    // HTTP errors and unavailable code judges are never marked as submitted.
     codingSubmitted.add(codingIndex);
     setupCodingTabs(); // Refresh tabs to show checkmark
     checkFinishStatus(); // Check if ready to finish
   }).catch(e => {
-    out.textContent = '> Fatal Server Error.';
-    statusEl.textContent = 'SYSTEM_ERROR';
+    out.textContent = '> Submission not recorded: '+e.message;
+    statusEl.textContent = 'SUBMISSION_ERROR';
   });
 }
 
