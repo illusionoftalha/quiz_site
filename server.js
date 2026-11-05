@@ -2,6 +2,7 @@ const express = require('express');
 const {pool} = require('./lib/db');
 const auth = require('./lib/auth');
 const {gradeAnswers} = require('./lib/grading');
+const {runWithPiston} = require('./lib/judge');
 const { getSubmissions } = require('./lib/submissions');
 const path = require('path');
 
@@ -202,42 +203,6 @@ app.get('/api/coding/:version_code', studentOnly, async (req, res) => {
     }
 });
 
-// Helper for running code via Piston API
-async function runWithPiston(code, inputData = '') {
-    try {
-        const controller = new AbortController();
-        const executionTimeout = setTimeout(() => controller.abort(), 12000);
-        const payload = {
-            language: "c",
-            version: "*",
-            files: [{ content: code }],
-            stdin: inputData,
-            compile_timeout: 10000,
-            run_timeout: 3000
-        };
-        const response = await fetch('https://emacs.piston.rs/api/v2/execute', {
-            method: 'POST',
-            signal: controller.signal,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        if (!response.ok) throw new Error('Execution unavailable');
-        const result = await response.json();
-        clearTimeout(executionTimeout);
-        
-        if (result.compile && result.compile.code !== 0) {
-            return { error: true, type: 'COMPILE_ERROR', message: result.compile.output };
-        }
-        if (result.run && result.run.code !== 0) {
-            let type = result.run.signal === 'SIGKILL' ? 'TIME_LIMIT' : 'RUNTIME_ERROR';
-            return { error: true, type: type, message: result.run.output };
-        }
-        return { error: false, stdout: result.run ? result.run.stdout : '' };
-    } catch (e) {
-        return { error: true, type: 'RUNTIME_ERROR', message: 'Code execution unavailable' };
-    }
-}
-
 // 5. Submit & Evaluate Code
 app.post('/api/submit_code', studentOnly,ownSession,active, async (req, res) => {
     try {
@@ -250,6 +215,7 @@ app.post('/api/submit_code', studentOnly,ownSession,active, async (req, res) => 
         if(prior.length)return res.status(409).json({error:'Already submitted'});
         // Compile Check via Piston
         const compileCheck = await runWithPiston(code, '');
+        if(compileCheck.type==='SERVICE_UNAVAILABLE')return res.status(503).json({error:'Code judge unavailable; retry later'});
         
         if (compileCheck.error && compileCheck.type === 'COMPILE_ERROR') {
             await pool.query(
@@ -269,6 +235,7 @@ app.post('/api/submit_code', studentOnly,ownSession,active, async (req, res) => 
             const input = tc.stdin_input ? tc.stdin_input.replace(/\\n/g, '\n') : '';
             const run = await runWithPiston(code, input);
             
+            if (run.type==='SERVICE_UNAVAILABLE')return res.status(503).json({error:'Code judge unavailable; retry later'});
             if (run.error) {
                 finalVerdict = run.type; // RUNTIME_ERROR or TIME_LIMIT
                 firstFailedOutput = run.message;
@@ -289,6 +256,8 @@ app.post('/api/submit_code', studentOnly,ownSession,active, async (req, res) => 
         }
         
         if (testCases.length === 0) return res.status(409).json({error:'No test cases configured'});
+        const [fresh] = await pool.query("SELECT 1 FROM quiz_sessions WHERE id=? AND roll_no=? AND status='IN_PROGRESS' AND started_at>DATE_SUB(NOW(),INTERVAL 1 HOUR)",[session_id,req.principal.subject]);
+        if(!fresh.length)return res.status(409).json({error:'Assessment expired while evaluating code'});
         
         await pool.query(
             'INSERT INTO code_submissions (session_id, challenge_code, submitted_code, verdict, cases_passed, total_cases, compiler_output) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -316,6 +285,7 @@ app.post('/api/run_code', studentOnly, async (req, res) => {
         const input = ch[0].sample_input ? ch[0].sample_input.replace(/\\n/g, '\n') : '';
         const run = await runWithPiston(code, input);
         
+        if (run.type==='SERVICE_UNAVAILABLE')return res.status(503).json({error:'Code judge unavailable; retry later'});
         if (run.error && run.type === 'COMPILE_ERROR') {
             return res.json({ success: false, verdict: 'COMPILE_ERROR', output: run.message });
         }
