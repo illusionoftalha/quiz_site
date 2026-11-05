@@ -1125,6 +1125,11 @@ function nextMcq() {
       document.getElementById('mcq-score').textContent = data.score;
       document.getElementById('mcq-total').textContent = data.total;
       mcqFinished = true;
+      // Re-fetch coding challenges now that the server permits access after MCQ completion.
+      // The initial coding request is intentionally forbidden until MCQs are submitted.
+      loadAssessmentData(currentVersion);
+      document.getElementById('mcq-score').textContent = data.score;
+      document.getElementById('mcq-total').textContent = data.total;
       checkFinishStatus();
       loadAssessments(); // Refresh assessment status
     });
