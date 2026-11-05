@@ -1,5 +1,5 @@
 'use strict';
-const {test,after}=require('node:test');
+const {test,before,after}=require('node:test');
 const assert=require('node:assert/strict');
 const path=require('node:path');
 const {tokenHash}=require('../lib/auth');
@@ -26,7 +26,8 @@ const dbId=require.resolve('../lib/db');
 require.cache[dbId]={id:dbId,filename:dbId,loaded:true,exports:{pool:fakePool}};
 const app=require('../server');
 const server=app.listen(0,'127.0.0.1');
-after(()=>{server.close();delete require.cache[dbId]});
+before(async()=>{if(!server.listening)await require('node:events').once(server,'listening');});
+after(async()=>{await new Promise(resolve=>server.close(resolve));delete require.cache[dbId]});
 function url(route){return 'http://127.0.0.1:'+server.address().port+route}
 function cookie(token){return {cookie:'quiz_auth='+token}}
 test('unauthenticated admin submissions rejected',async()=>{
