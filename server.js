@@ -2,16 +2,22 @@ const express = require('express');
 const {pool} = require('./lib/db');
 const auth = require('./lib/auth');
 const {gradeAnswers} = require('./lib/grading');
-const cors = require('cors');
 const { getSubmissions } = require('./lib/submissions');
-const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process'); // No longer needed, kept for reference but unused
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.disable('x-powered-by');
+app.use((req,res,next)=>{
+ res.set('X-Content-Type-Options','nosniff');
+ res.set('X-Frame-Options','DENY');
+ res.set('Referrer-Policy','strict-origin-when-cross-origin');
+ res.set('Content-Security-Policy',"frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'");
+ if(req.path.startsWith('/api/'))res.set('Cache-Control','no-store');
+ if((process.env.APP_ORIGIN||'').startsWith('https://'))res.set('Strict-Transport-Security','max-age=31536000');
+ next();
+});
 app.use(express.json({limit:'100kb'}));
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -138,7 +144,7 @@ app.post('/api/start_assessment', studentOnly, async (req, res) => {
         const messageText = `🚀 Student ${roll_no} has STARTED the assessment!`;
         // External notifications removed: never commit provider credentials.
 
-        res.json({ success: true, session_id: result.insertId, session_token, mcq_submitted: false, coding_submissions: [] });
+        res.json({ success: true, session_id: result.insertId, mcq_submitted: false, coding_submissions: [] });
     } catch (e) {
         res.status(500).json({ error: 'Internal server error' });
     }
@@ -357,6 +363,7 @@ app.get('/api/autosave/:session_id/:challenge_code', studentOnly,ownSession, asy
 app.post('/api/log_violation', studentOnly,ownSession, async (req, res) => {
     try {
         const { session_id, event_type, details } = req.body;
+        if(!['TAB_SWITCH','TAB_CLOSED','PASTE_ATTEMPT'].includes(event_type)||typeof details!=='string'||details.length>500)return res.status(400).json({error:'Invalid event'});
         await pool.query('INSERT INTO security_logs (session_id, event_type, details) VALUES (?, ?, ?)', [session_id, event_type, details]);
         
         // WhatsApp Notification via TextMeBot
