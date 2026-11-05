@@ -868,18 +868,31 @@
       document.getElementById('clk').textContent = [n.getHours(), n.getMinutes(), n.getSeconds()].map(x => String(x).padStart(2, '0')).join(':');
     }, 1000);
 
-    const student = JSON.parse(sessionStorage.getItem('student'));
+    let student = null;
     let sessionId = sessionStorage.getItem('session_id');
 
-    if (!student) {
-      window.location.href = 'index.html';
-    } else {
+    // The server, not editable sessionStorage, determines the authenticated identity.
+    fetch('/api/auth/me').then(async response => {
+      if (!response.ok) throw new Error('Not logged in');
+      const identity = await response.json();
+      if (identity.role !== 'student' || !identity.student) throw new Error('Student access required');
+      student = identity.student;
+      const previous = JSON.parse(sessionStorage.getItem('student') || 'null');
+      if (previous && previous.roll_no !== student.roll_no) {
+        sessionStorage.removeItem('session_id');
+        sessionId = null;
+      }
+      sessionStorage.setItem('student', JSON.stringify(student));
       document.getElementById('student-info').textContent = `AUTH_USER: ${student.roll_no} // STATUS: IDLE`;
       document.getElementById('s-name').textContent = student.full_name;
       if (document.getElementById('p-roll')) document.getElementById('p-roll').textContent = student.roll_no;
       if (document.getElementById('p-version')) document.getElementById('p-version').textContent = student.version_code || 'UNASSIGNED';
       loadAssessments();
-    }
+    }).catch(() => {
+      sessionStorage.removeItem('student');
+      sessionStorage.removeItem('session_id');
+      window.location.href = 'index.html';
+    });
 
     function nav(id) {
       if (id === 'coding' && currentVersion && !mcqFinished) {
@@ -912,7 +925,7 @@
 
             const btn = document.createElement('button');
             btn.className = 'obtn' + (isCompleted ? ' completed' : '');
-            btn.innerHTML = `<span>[ ${a.version_code} ] ${a.total_questions} MODULES</span> <span>[ ${statusText} ]</span>`;
+            btn.textContent = '[ '+String(a.version_code)+' ] '+String(a.total_questions)+' MODULES  [ '+statusText+' ]';
             
             if (isCompleted) {
               btn.style.opacity = '0.5';
@@ -979,10 +992,17 @@
             if(data.coding && data.coding.length > 0) {
               data.coding.forEach(c => {
                 const color = c.verdict === 'ACCEPTED' ? 'var(--g)' : (c.verdict === 'COMPILE_ERROR' ? 'var(--amber)' : 'var(--red)');
-                clist.innerHTML += `<div style="background: rgba(0,0,0,0.5); padding: 10px; border: 1px solid ${color}; display: flex; justify-content: space-between;">
-                  <span>${c.challenge_code} | ${c.title}</span>
-                  <span style="color: ${color}; font-weight: bold;">[ ${c.verdict} ] ${c.cases_passed||0}/${c.total_cases||0}</span>
-                </div>`;
+                const line = document.createElement('div');
+                line.style.cssText = 'background:rgba(0,0,0,.5);padding:10px;display:flex;justify-content:space-between';
+                line.style.border = '1px solid '+color;
+                const name = document.createElement('span');
+                name.textContent = String(c.challenge_code)+' | '+String(c.title);
+                const verdict = document.createElement('span');
+                verdict.style.color = color;
+                verdict.style.fontWeight = 'bold';
+                verdict.textContent = '[ '+String(c.verdict)+' ] '+String(c.cases_passed||0)+'/'+String(c.total_cases||0);
+                line.append(name,verdict);
+                clist.appendChild(line);
               });
             } else {
               clist.innerHTML = '<span class="red-txt">> NO SUBMISSIONS DETECTED</span>';
@@ -1065,7 +1085,7 @@ function loadMcq() {
     if (mcqAnswers[mcqIndex] && mcqAnswers[mcqIndex].selected_opt === i) {
       btn.classList.add('correct');
     }
-    btn.innerHTML = `[${letter}] ${optText}`;
+    btn.textContent = '['+letter+'] '+String(optText);
     btn.onclick = () => pickMcq(i, btn);
     optsDiv.appendChild(btn);
   });
@@ -1097,7 +1117,7 @@ function nextMcq() {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ session_id: sessionId, answers: mcqAnswers, total_mcq: mcqData.length })
-    }).then(r=>r.json()).then(data => {
+    }).then(async r => { const data = await r.json(); if (!r.ok || !data.success) throw Error(data.error || 'MCQ submission rejected'); return data; }).then(data => {
       document.getElementById('mcq-container').style.display = 'none';
       const d = document.getElementById('mcq-done');
       d.classList.remove('hidden');
@@ -1105,9 +1125,14 @@ function nextMcq() {
       document.getElementById('mcq-score').textContent = data.score;
       document.getElementById('mcq-total').textContent = data.total;
       mcqFinished = true;
+      // Re-fetch coding challenges now that the server permits access after MCQ completion.
+      // The initial coding request is intentionally forbidden until MCQs are submitted.
+      loadAssessmentData(currentVersion);
+      document.getElementById('mcq-score').textContent = data.score;
+      document.getElementById('mcq-total').textContent = data.total;
       checkFinishStatus();
       loadAssessments(); // Refresh assessment status
-    });
+    }).catch(error => {document.getElementById('q-msg').textContent = '> '+error.message;});
   }
 }
 
@@ -1147,7 +1172,8 @@ function loadCoding() {
   document.getElementById('c-right-panel').style.display = 'block';
   document.getElementById('c-left-panel').style.borderRight = '2px dashed var(--gdim)';
   document.getElementById('c-title').textContent = c.title + ` [${c.challenge_code}]`;
-  document.getElementById('c-desc').innerHTML = c.description.replace(/\n/g, '<br>');
+  document.getElementById('c-desc').textContent = c.description || '';
+  document.getElementById('c-desc').style.whiteSpace = 'pre-wrap';
   document.getElementById('c-constraints').textContent = c.constraints || 'None';
   document.getElementById('c-s-in').textContent = c.sample_input || 'None';
   document.getElementById('c-s-out').textContent = c.sample_output || 'None';
@@ -1226,7 +1252,7 @@ function submitCode() {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ session_id: sessionId, challenge_code: c.challenge_code, code })
-  }).then(r=>r.json()).then(data => {
+  }).then(async r => { const data = await r.json(); if (!r.ok || !data.verdict) throw Error(data.error || 'Submission rejected'); return data; }).then(data => {
     statusEl.textContent = `VERDICT: ${data.verdict} [${data.cases_passed||0}/${data.total_cases||0}]`;
     statusEl.className = `verdict-${data.verdict}`;
     
@@ -1238,13 +1264,14 @@ function submitCode() {
       out.textContent = data.details || "> Execution Failed on hidden test cases.";
     }
     
-    // Mark this challenge as submitted
+    // A graded verdict, including a wrong answer, is recorded as a submission.
+    // HTTP errors and unavailable code judges are never marked as submitted.
     codingSubmitted.add(codingIndex);
     setupCodingTabs(); // Refresh tabs to show checkmark
     checkFinishStatus(); // Check if ready to finish
   }).catch(e => {
-    out.textContent = '> Fatal Server Error.';
-    statusEl.textContent = 'SYSTEM_ERROR';
+    out.textContent = '> Submission not recorded: '+e.message;
+    statusEl.textContent = 'SUBMISSION_ERROR';
   });
 }
 
@@ -1291,7 +1318,7 @@ async function finishAssessment(force = false) {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ session_id: sessionId })
-    }).then(r=>r.json()).then(data => {
+    }).then(async r => {const json = await r.json(); if (!r.ok) throw new Error(json.error || 'Submission failed'); return json;}).then(data => {
       if (data.success) {
         alert('>>> ASSESSMENT COMPLETED. RESULTS GENERATED.');
         document.getElementById('finish-btn').textContent = '[ EXAM FINISHED ]';
@@ -1304,7 +1331,7 @@ async function finishAssessment(force = false) {
         loadResults();
         loadAssessments();
       }
-    });
+    }).catch(error => alert(error.message));
   }
 }
 
@@ -1374,7 +1401,7 @@ function startTimerSync() {
     fetch('/api/timer_sync/' + sessionId)
       .then(r=>r.json())
       .then(data => {
-        if(data.status === 'COMPLETED') {
+        if(data.status === 'SUBMITTED') {
           clearInterval(timerInterval);
           document.getElementById('timer-display').style.display = 'none';
           return;

@@ -53,6 +53,7 @@ button:hover { background: var(--gglow); box-shadow: 0 0 15px var(--gglow); }
     <div class="title">QUIZ_TERMINAL</div>
     <div class="subtitle">ENTER ROLL NUMBER TO CONTINUE</div>
     <input type="text" id="rollno" placeholder="e.g. 26SP-007-SE" onkeydown="if(event.key==='Enter') login()">
+    <input type="password" id="password" placeholder="Assigned access password" autocomplete="current-password" onkeydown="if(event.key==='Enter') login()">
     <button onclick="login()">[ AUTHENTICATE ]</button>
     <div class="error" id="err-msg">INVALID ROLL NUMBER</div>
   </div>
@@ -67,12 +68,12 @@ async function login() {
     const res = await fetch('/api/student/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ roll_no: rollno })
+      body: JSON.stringify({ roll_no: rollno, password: document.getElementById('password').value })
     });
     const data = await res.json();
     if(data.success) {
       sessionStorage.setItem('student', JSON.stringify(data.student));
-      sessionStorage.setItem('session_id', data.session_id);
+      sessionStorage.removeItem('session_id');
       window.location.href = 'dashboard.html';
     } else {
       document.getElementById('err-msg').style.display = 'block';
