@@ -252,6 +252,7 @@
 
   <script>
     let submissionsCache = {};
+    const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 
     function openModal(sessionId) {
       const data = submissionsCache[sessionId];
@@ -267,10 +268,10 @@
         data.coding.forEach(c => {
           html += `
             <div style="margin-bottom: 2rem;">
-              <h3 style="color: var(--amber); margin-bottom: 10px;">> Challenge: ${c.challenge_code} | Verdict: [ ${c.verdict} ]</h3>
+              <h3 style="color: var(--amber); margin-bottom: 10px;">> Challenge: ${esc(c.challenge_code)} | Verdict: [ ${esc(c.verdict)} ]</h3>
               <p>Cases Passed: ${c.cases_passed || 0}/${c.total_cases || 0}</p>
-              <pre class="code-block">${c.submitted_code ? c.submitted_code.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '/* No code saved */'}</pre>
-              ${c.compiler_output ? `<p style="color: var(--red);">Compiler Output:</p><pre class="code-block" style="color: var(--red);">${c.compiler_output.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>` : ''}
+              <pre class="code-block">${esc(c.submitted_code ? c.submitted_code.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '/* No code saved */')}</pre>
+              ${c.compiler_output ? `<p style="color: var(--red);">Compiler Output:</p><pre class="code-block" style="color: var(--red);">${esc(c.compiler_output.replace(/</g, '&lt;').replace(/>/g, '&gt;'))}</pre>` : ''}
             </div>
           `;
         });
@@ -328,8 +329,8 @@
               const cases = `[ ${s.cases_passed || 0}/${s.cases_total || 0} ]`;
               
               tr.innerHTML = `
-                <td>${s.full_name || 'UNKNOWN'}</td>
-                <td>${s.roll_no || '-'}</td>
+                <td>${esc(s.full_name || 'UNKNOWN')}</td>
+                <td>${esc(s.roll_no || '-')}</td>
                 <td>${startStr}</td>
                 <td>${cases}</td>
                 <td>[ ${s.tab_switches} ]</td>
@@ -362,9 +363,9 @@
             
             const timeStr = new Date(log.logged_at).toLocaleTimeString();
             tr.innerHTML = `
-              <td>${log.roll_no || 'UNKNOWN'}</td>
+              <td>${esc(log.roll_no || 'UNKNOWN')}</td>
               <td>${timeStr}</td>
-              <td>[ ${log.event_type} ] ${log.details || '-'}</td>
+              <td>[ ${esc(log.event_type)} ] ${esc(log.details || '-')}</td>
             `;
             tbody.appendChild(tr);
           });
@@ -373,7 +374,7 @@
           if (newLogs.length > 0) {
             // Sort new logs ascending so older ones pop up first
             newLogs.sort((a,b) => a.id - b.id).forEach(log => {
-              createToast(`! ${log.event_type} !`, `Subject: ${log.full_name || log.roll_no || 'Unknown'}<br>${log.details}`);
+              createToast(`! ${esc(log.event_type)} !`, `Subject: ${esc(log.full_name || log.roll_no || 'Unknown')}<br>${esc(log.details)}`);
             });
           }
 
@@ -401,8 +402,8 @@
             const tr = document.createElement('tr');
             const timeStr = new Date(s.submitted_at).toLocaleString();
             tr.innerHTML = `
-              <td>${s.full_name || 'UNKNOWN'}</td>
-              <td>${s.roll_no || '-'}</td>
+              <td>${esc(s.full_name || 'UNKNOWN')}</td>
+              <td>${esc(s.roll_no || '-')}</td>
               <td><strong style="color: var(--amber);">${s.mcq_score !== null ? s.mcq_score : 0}/${s.total_mcq !== null ? s.total_mcq : 0}</strong></td>
               <td>${timeStr}</td>
               <td><button onclick="openModal(${s.session_id})" style="background: transparent; color: var(--cyan); border: 1px solid var(--cyan); cursor: pointer; padding: 4px 8px; font-family: var(--vt);">[ VIEW_CODE ]</button></td>
@@ -420,12 +421,12 @@
     const termPrompt = document.getElementById('term-prompt');
     const termOutput = document.getElementById('term-output');
 
-    termInput.addEventListener('keydown', (e) => {
+    termInput.addEventListener('keydown', async (e) => {
       if (e.key === 'Enter') {
         const val = termInput.value.trim();
         if (loginStep === 0) {
           username = val;
-          termOutput.innerHTML += `<div>proctor-node login: ${username}</div>`;
+          termOutput.innerHTML += `<div>proctor-node login: ${esc(username)}</div>`;
           termPrompt.textContent = `Password: `;
           termInput.value = '';
           termInput.type = 'password';
@@ -433,7 +434,15 @@
         } else if (loginStep === 1) {
           // Password entered
           termOutput.innerHTML += `<div>Password: ${'*'.repeat(val.length)}</div>`;
-          if (username === 'admin' && val === 'root') {
+          let authenticated = false;
+          try {
+            const response = await fetch('/api/admin/login', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({username, password: val})
+            });
+            authenticated = response.ok;
+          } catch (error) { console.error('Admin login failed', error); }
+          if (authenticated) {
             termOutput.innerHTML += `<br><div style="color:var(--cyan); text-shadow: 0 0 5px var(--cyan);">Access Granted. Authenticating session...</div>`;
             termInput.disabled = true;
             
