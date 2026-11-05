@@ -107,6 +107,9 @@ if (process.env.RUN_MYSQL_TESTS !== '1') {
     assert.equal(start.data.success,true);
     sessionId = start.data.session_id;
     assert.equal(start.data.session_token,undefined);
+    const secondStart = await call('/api/start_assessment',{method:'POST',cookie:studentCookie,body:{version_code:'V1'}});
+    assert.equal(secondStart.status,200);
+    assert.equal(secondStart.data.session_id,sessionId,'restarting must reuse the same active session');
     const questions = await call('/api/mcq/V1',{cookie:studentCookie});
     assert.equal(questions.status,200);
     assert.equal(questions.data.questions.length,2);
