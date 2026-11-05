@@ -203,73 +203,56 @@ app.get('/api/coding/:version_code', studentOnly, async (req, res) => {
     }
 });
 
-// 5. Submit & Evaluate Code
-app.post('/api/submit_code', studentOnly,ownSession,active, async (req, res) => {
-    try {
-        const { session_id, challenge_code, code } = req.body;
-        if(typeof code!=='string'||code.length>20000)return res.status(400).json({error:'Invalid code'});
-        if(req.quizSession.mcq_score===null)return res.status(403).json({error:'Complete MCQs first'});
-        const [owned]=await pool.query('SELECT 1 FROM coding_challenges WHERE challenge_code=? AND version_code=?',[challenge_code,req.quizSession.version_code]);
-        if(!owned.length)return res.status(403).json({error:'Challenge not assigned'});
-        const [prior]=await pool.query('SELECT id FROM code_submissions WHERE session_id=? AND challenge_code=? LIMIT 1',[session_id,challenge_code]);
-        if(prior.length)return res.status(409).json({error:'Already submitted'});
-        // Compile Check via Piston
-        const compileCheck = await runWithPiston(code, '');
-        if(compileCheck.type==='SERVICE_UNAVAILABLE')return res.status(503).json({error:'Code judge unavailable; retry later'});
-        
-        if (compileCheck.error && compileCheck.type === 'COMPILE_ERROR') {
-            await pool.query(
-                'INSERT INTO code_submissions (session_id, challenge_code, submitted_code, verdict, compiler_output) VALUES (?, ?, ?, ?, ?)',
-                [session_id, challenge_code, code, 'COMPILE_ERROR', compileCheck.message]
-            );
-            return res.json({ success: false, verdict: 'COMPILE_ERROR', output: compileCheck.message });
-        }
-        
-        // Fetch test cases
-        const [testCases] = await pool.query('SELECT * FROM test_cases WHERE challenge_code = ?', [challenge_code]);
-        let casesPassed = 0;
-        let finalVerdict = 'ACCEPTED';
-        let firstFailedOutput = '';
-        
-        for (const tc of testCases) {
-            const input = tc.stdin_input ? tc.stdin_input.replace(/\\n/g, '\n') : '';
-            const run = await runWithPiston(code, input);
-            
-            if (run.type==='SERVICE_UNAVAILABLE')return res.status(503).json({error:'Code judge unavailable; retry later'});
-            if (run.error) {
-                finalVerdict = run.type; // RUNTIME_ERROR or TIME_LIMIT
-                firstFailedOutput = run.message;
-                break;
-            }
-            
-            // Compare outputs (trim trailing whitespace/newlines)
-            const actual = run.stdout.trim();
-            const expected = tc.expected_output ? tc.expected_output.trim() : '';
-            
-            if (actual === expected) {
-                casesPassed++;
-            } else {
-                finalVerdict = 'WRONG_ANSWER';
-                firstFailedOutput = 'Wrong answer on hidden test case';
-                break;
-            }
-        }
-        
-        if (testCases.length === 0) return res.status(409).json({error:'No test cases configured'});
-        const [fresh] = await pool.query("SELECT 1 FROM quiz_sessions WHERE id=? AND roll_no=? AND status='IN_PROGRESS' AND started_at>DATE_SUB(NOW(),INTERVAL 1 HOUR)",[session_id,req.principal.subject]);
-        if(!fresh.length)return res.status(409).json({error:'Assessment expired while evaluating code'});
-        
-        await pool.query(
-            'INSERT INTO code_submissions (session_id, challenge_code, submitted_code, verdict, cases_passed, total_cases, compiler_output) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [session_id, challenge_code, code, finalVerdict, casesPassed, testCases.length, firstFailedOutput]
-        );
-        
-        res.json({ success: finalVerdict === 'ACCEPTED', verdict: finalVerdict, cases_passed: casesPassed, total_cases: testCases.length, details: firstFailedOutput });
-    } catch (e) {
-        console.error(e);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
+// Code submissions require a current student-owned session and assigned challenge.
+// A row lock serializes concurrent attempts so a challenge cannot be submitted twice.
+app.post('/api/submit_code',studentOnly,ownSession,active,asyncRoute(async(req,res)=>{
+ const {session_id,challenge_code,code}=req.body||{};
+ if(typeof challenge_code!=='string'||!/^[A-Za-z0-9_-]{1,20}$/.test(challenge_code)||
+    typeof code!=='string'||code.length>20000)return res.status(400).json({error:'Invalid challenge or code'});
+ if(req.quizSession.mcq_score===null)return res.status(403).json({error:'Complete MCQs first'});
+ const [assigned]=await pool.query('SELECT 1 FROM coding_challenges WHERE challenge_code=? AND version_code=?',
+  [challenge_code,req.quizSession.version_code]);
+ if(!assigned.length)return res.status(403).json({error:'Challenge not assigned'});
+ const [existing]=await pool.query('SELECT id FROM code_submissions WHERE session_id=? AND challenge_code=? LIMIT 1',
+  [session_id,challenge_code]);
+ if(existing.length)return res.status(409).json({error:'Challenge already submitted'});
+ const [cases]=await pool.query('SELECT stdin_input,expected_output FROM test_cases WHERE challenge_code=? ORDER BY case_number LIMIT 25',[challenge_code]);
+ if(!cases.length)return res.status(409).json({error:'Challenge has no test cases'});
+ let verdict='ACCEPTED',casesPassed=0,details='';
+ const compile=await runWithPiston(code,'');
+ if(compile.type==='SERVICE_UNAVAILABLE')return res.status(503).json({error:'Code judge unavailable; retry later'});
+ if(compile.error){verdict=compile.type;details=compile.message;}
+ else {
+  for(const tc of cases){
+   const input=String(tc.stdin_input||'').replace(/\\n/g,'\n');
+   const output=await runWithPiston(code,input);
+   if(output.type==='SERVICE_UNAVAILABLE')return res.status(503).json({error:'Code judge unavailable; retry later'});
+   if(output.error){verdict=output.type;details=output.message;break;}
+   if(output.stdout.trim()!==String(tc.expected_output||'').trim()){
+    verdict='WRONG_ANSWER';details='Hidden test case did not match';break;
+   }
+   casesPassed++;
+  }
+ }
+ const conn=await pool.getConnection();
+ try {
+  await conn.beginTransaction();
+  const [rows]=await conn.query('SELECT roll_no, status, started_at, mcq_score FROM quiz_sessions WHERE id=? FOR UPDATE',[session_id]);
+  if(!rows.length||rows[0].roll_no!==req.principal.subject){
+   await conn.rollback();return res.status(403).json({error:'Session not assigned'});
+  }
+  const valid=rows[0].status==='IN_PROGRESS'&&rows[0].mcq_score!==null&&
+    Date.now()-new Date(rows[0].started_at).getTime()<3600000;
+  if(!valid){await conn.rollback();return res.status(409).json({error:'Session finished or timed out'});}
+  const [prior]=await conn.query('SELECT id FROM code_submissions WHERE session_id=? AND challenge_code=? LIMIT 1',
+   [session_id,challenge_code]);
+  if(prior.length){await conn.rollback();return res.status(409).json({error:'Challenge already submitted'});}
+  await conn.query('INSERT INTO code_submissions (session_id,challenge_code,submitted_code,verdict,cases_passed,total_cases,compiler_output) VALUES (?,?,?,?,?,?,?)',
+   [session_id,challenge_code,code,verdict,casesPassed,cases.length,details]);
+  await conn.commit();
+ }catch(error){await conn.rollback();throw error;}finally{conn.release();}
+ res.json({success:verdict==='ACCEPTED',verdict,cases_passed:casesPassed,total_cases:cases.length,details});
+}));
 
 // Run Code (Sample Output Only)
 app.post('/api/run_code', studentOnly, async (req, res) => {
@@ -279,7 +262,7 @@ app.post('/api/run_code', studentOnly, async (req, res) => {
         const [owned]=await pool.query("SELECT 1 FROM coding_challenges c JOIN quiz_sessions s ON s.version_code=c.version_code WHERE c.challenge_code=? AND s.roll_no=? AND s.status='IN_PROGRESS' AND s.mcq_score IS NOT NULL AND s.started_at>DATE_SUB(NOW(),INTERVAL 1 HOUR) LIMIT 1",[challenge_code,req.principal.subject]);
         if(!owned.length)return res.status(403).json({error:'Challenge not assigned'});
         // Fetch sample input
-        const [ch] = await pool.query('SELECT sample_input, sample_output FROM coding_challenges WHERE challenge_code = ?', [challenge_code]);
+        const [ch] = await pool.query('SELECT sample_input FROM coding_challenges WHERE challenge_code = ?', [challenge_code]);
         if (ch.length === 0) return res.status(404).json({ error: 'Challenge not found' });
         
         const input = ch[0].sample_input ? ch[0].sample_input.replace(/\\n/g, '\n') : '';
@@ -336,27 +319,6 @@ app.post('/api/log_violation', studentOnly,ownSession, async (req, res) => {
         if(!['TAB_SWITCH','TAB_CLOSED','PASTE_ATTEMPT'].includes(event_type)||typeof details!=='string'||details.length>500)return res.status(400).json({error:'Invalid event'});
         await pool.query('INSERT INTO security_logs (session_id, event_type, details) VALUES (?, ?, ?)', [session_id, event_type, details]);
         
-        // WhatsApp Notification via TextMeBot
-        try {
-            const [sessionRows] = await pool.query('SELECT roll_no FROM quiz_sessions WHERE id = ?', [session_id]);
-            if (sessionRows.length > 0) {
-                const roll_no = sessionRows[0].roll_no;
-                
-                let messageText = '';
-                if (event_type === 'TAB_SWITCH') {
-                    messageText = `🚨 Roll No ${roll_no} has switched tab`;
-                } else if (event_type === 'TAB_CLOSED') {
-                    messageText = `🚨 Roll No ${roll_no} has closed the tab`;
-                } else {
-                    messageText = `🚨 Roll No ${roll_no} triggered a ${event_type} violation!`;
-                }
-
-                // External notifications removed: never commit provider credentials.
-            }
-        } catch (botErr) {
-            console.error('Error triggering WhatsApp bot:', botErr.message);
-        }
-
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: 'Internal server error' });
@@ -378,25 +340,6 @@ app.post('/api/finish_assessment', studentOnly,ownSession, async (req, res) => {
         const [updated]=await pool.query("UPDATE quiz_sessions SET status='SUBMITTED',submitted_at=NOW() WHERE id=? AND roll_no=? AND status='IN_PROGRESS'",[session_id,req.principal.subject]);
         if(!updated.affectedRows)return res.status(409).json({error:'Already submitted'});
         
-        // Fetch session data to send WhatsApp notification
-        try {
-            const [rows] = await pool.query('SELECT roll_no, mcq_score, total_mcq FROM quiz_sessions WHERE id = ?', [session_id]);
-            if (rows.length > 0) {
-                const roll_no = rows[0].roll_no;
-                const mcq_score = rows[0].mcq_score !== null ? rows[0].mcq_score : 0;
-                const total_mcq = rows[0].total_mcq !== null ? rows[0].total_mcq : 0;
-                
-                const [codes] = await pool.query('SELECT SUM(cases_passed) as passed, SUM(total_cases) as total FROM code_submissions WHERE session_id = ?', [session_id]);
-                const casesPassed = codes[0].passed || 0;
-                const casesTotal = codes[0].total || 0;
-                
-                const messageText = `✅ Student ${roll_no} has SUBMITTED the test!\nMCQ Score: ${mcq_score}/${total_mcq}\nTest Cases: ${casesPassed}/${casesTotal}`;
-                // External notifications removed: never commit provider credentials.
-            }
-        } catch (botErr) {
-            console.error('Error triggering WhatsApp bot:', botErr.message);
-        }
-
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: 'Internal server error' });
