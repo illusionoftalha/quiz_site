@@ -868,18 +868,31 @@
       document.getElementById('clk').textContent = [n.getHours(), n.getMinutes(), n.getSeconds()].map(x => String(x).padStart(2, '0')).join(':');
     }, 1000);
 
-    const student = JSON.parse(sessionStorage.getItem('student'));
+    let student = null;
     let sessionId = sessionStorage.getItem('session_id');
 
-    if (!student) {
-      window.location.href = 'index.html';
-    } else {
+    // The server, not editable sessionStorage, determines the authenticated identity.
+    fetch('/api/auth/me').then(async response => {
+      if (!response.ok) throw new Error('Not logged in');
+      const identity = await response.json();
+      if (identity.role !== 'student' || !identity.student) throw new Error('Student access required');
+      student = identity.student;
+      const previous = JSON.parse(sessionStorage.getItem('student') || 'null');
+      if (previous && previous.roll_no !== student.roll_no) {
+        sessionStorage.removeItem('session_id');
+        sessionId = null;
+      }
+      sessionStorage.setItem('student', JSON.stringify(student));
       document.getElementById('student-info').textContent = `AUTH_USER: ${student.roll_no} // STATUS: IDLE`;
       document.getElementById('s-name').textContent = student.full_name;
       if (document.getElementById('p-roll')) document.getElementById('p-roll').textContent = student.roll_no;
       if (document.getElementById('p-version')) document.getElementById('p-version').textContent = student.version_code || 'UNASSIGNED';
       loadAssessments();
-    }
+    }).catch(() => {
+      sessionStorage.removeItem('student');
+      sessionStorage.removeItem('session_id');
+      window.location.href = 'index.html';
+    });
 
     function nav(id) {
       if (id === 'coding' && currentVersion && !mcqFinished) {
@@ -1291,7 +1304,7 @@ async function finishAssessment(force = false) {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ session_id: sessionId })
-    }).then(r=>r.json()).then(data => {
+    }).then(async r => {const json = await r.json(); if (!r.ok) throw new Error(json.error || 'Submission failed'); return json;}).then(data => {
       if (data.success) {
         alert('>>> ASSESSMENT COMPLETED. RESULTS GENERATED.');
         document.getElementById('finish-btn').textContent = '[ EXAM FINISHED ]';
@@ -1304,7 +1317,7 @@ async function finishAssessment(force = false) {
         loadResults();
         loadAssessments();
       }
-    });
+    }).catch(error => alert(error.message));
   }
 }
 
@@ -1374,7 +1387,7 @@ function startTimerSync() {
     fetch('/api/timer_sync/' + sessionId)
       .then(r=>r.json())
       .then(data => {
-        if(data.status === 'COMPLETED') {
+        if(data.status === 'SUBMITTED') {
           clearInterval(timerInterval);
           document.getElementById('timer-display').style.display = 'none';
           return;

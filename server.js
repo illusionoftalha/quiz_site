@@ -199,6 +199,8 @@ app.get('/api/coding/:version_code', studentOnly, async (req, res) => {
 // Helper for running code via Piston API
 async function runWithPiston(code, inputData = '') {
     try {
+        const controller = new AbortController();
+        const executionTimeout = setTimeout(() => controller.abort(), 12000);
         const payload = {
             language: "c",
             version: "*",
@@ -209,10 +211,13 @@ async function runWithPiston(code, inputData = '') {
         };
         const response = await fetch('https://emacs.piston.rs/api/v2/execute', {
             method: 'POST',
+            signal: controller.signal,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
+        if (!response.ok) throw new Error('Execution unavailable');
         const result = await response.json();
+        clearTimeout(executionTimeout);
         
         if (result.compile && result.compile.code !== 0) {
             return { error: true, type: 'COMPILE_ERROR', message: result.compile.output };
@@ -223,7 +228,7 @@ async function runWithPiston(code, inputData = '') {
         }
         return { error: false, stdout: result.run ? result.run.stdout : '' };
     } catch (e) {
-        return { error: true, type: 'RUNTIME_ERROR', message: e.message };
+        return { error: true, type: 'RUNTIME_ERROR', message: 'Code execution unavailable' };
     }
 }
 
