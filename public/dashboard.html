@@ -925,7 +925,7 @@
 
             const btn = document.createElement('button');
             btn.className = 'obtn' + (isCompleted ? ' completed' : '');
-            btn.innerHTML = `<span>[ ${a.version_code} ] ${a.total_questions} MODULES</span> <span>[ ${statusText} ]</span>`;
+            btn.textContent = '[ '+String(a.version_code)+' ] '+String(a.total_questions)+' MODULES  [ '+statusText+' ]';
             
             if (isCompleted) {
               btn.style.opacity = '0.5';
@@ -992,10 +992,17 @@
             if(data.coding && data.coding.length > 0) {
               data.coding.forEach(c => {
                 const color = c.verdict === 'ACCEPTED' ? 'var(--g)' : (c.verdict === 'COMPILE_ERROR' ? 'var(--amber)' : 'var(--red)');
-                clist.innerHTML += `<div style="background: rgba(0,0,0,0.5); padding: 10px; border: 1px solid ${color}; display: flex; justify-content: space-between;">
-                  <span>${c.challenge_code} | ${c.title}</span>
-                  <span style="color: ${color}; font-weight: bold;">[ ${c.verdict} ] ${c.cases_passed||0}/${c.total_cases||0}</span>
-                </div>`;
+                const line = document.createElement('div');
+                line.style.cssText = 'background:rgba(0,0,0,.5);padding:10px;display:flex;justify-content:space-between';
+                line.style.border = '1px solid '+color;
+                const name = document.createElement('span');
+                name.textContent = String(c.challenge_code)+' | '+String(c.title);
+                const verdict = document.createElement('span');
+                verdict.style.color = color;
+                verdict.style.fontWeight = 'bold';
+                verdict.textContent = '[ '+String(c.verdict)+' ] '+String(c.cases_passed||0)+'/'+String(c.total_cases||0);
+                line.append(name,verdict);
+                clist.appendChild(line);
               });
             } else {
               clist.innerHTML = '<span class="red-txt">> NO SUBMISSIONS DETECTED</span>';
@@ -1078,7 +1085,7 @@ function loadMcq() {
     if (mcqAnswers[mcqIndex] && mcqAnswers[mcqIndex].selected_opt === i) {
       btn.classList.add('correct');
     }
-    btn.innerHTML = `[${letter}] ${optText}`;
+    btn.textContent = '['+letter+'] '+String(optText);
     btn.onclick = () => pickMcq(i, btn);
     optsDiv.appendChild(btn);
   });
@@ -1160,7 +1167,8 @@ function loadCoding() {
   document.getElementById('c-right-panel').style.display = 'block';
   document.getElementById('c-left-panel').style.borderRight = '2px dashed var(--gdim)';
   document.getElementById('c-title').textContent = c.title + ` [${c.challenge_code}]`;
-  document.getElementById('c-desc').innerHTML = c.description.replace(/\n/g, '<br>');
+  document.getElementById('c-desc').textContent = c.description || '';
+  document.getElementById('c-desc').style.whiteSpace = 'pre-wrap';
   document.getElementById('c-constraints').textContent = c.constraints || 'None';
   document.getElementById('c-s-in').textContent = c.sample_input || 'None';
   document.getElementById('c-s-out').textContent = c.sample_output || 'None';
