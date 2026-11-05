@@ -11,8 +11,8 @@ if (process.env.RUN_MYSQL_TESTS !== '1') {
   if (process.env.NODE_ENV !== 'test' || process.env.DB_NAME !== 'quiz_ci' || process.env.DB_HOST !== '127.0.0.1') {
     throw new Error('Refusing to run integration tests outside isolated quiz_ci MySQL');
   }
-  const origin = 'http://127.0.0.1:3000';
-  process.env.APP_ORIGIN = origin;
+  const origin = () => process.env.APP_ORIGIN;
+  process.env.APP_ORIGIN = 'http://127.0.0.1:3000';
   const pool = mysql.createPool({
     host: '127.0.0.1', port: Number(process.env.DB_PORT || 3306),
     user: process.env.DB_USER || 'root', password: process.env.DB_PASSWORD,
@@ -20,7 +20,7 @@ if (process.env.RUN_MYSQL_TESTS !== '1') {
   });
   let server, base, studentCookie, adminCookie, sessionId;
   const originalFetch = global.fetch;
-  const headers = (cookie) => ({ 'Content-Type': 'application/json', Origin: origin, ...(cookie ? {Cookie: cookie} : {}) });
+  const headers = (cookie) => ({ 'Content-Type': 'application/json', Origin: origin(), ...(cookie ? {Cookie: cookie} : {}) });
   async function call(route, { method = 'GET', cookie, body } = {}) {
     const res = await originalFetch(base + route, {method, headers: headers(cookie), ...(body === undefined ? {} : {body: JSON.stringify(body)})});
     const raw = await res.text();
@@ -73,11 +73,13 @@ if (process.env.RUN_MYSQL_TESTS !== '1') {
     server = app.listen(0,'127.0.0.1');
     await once(server,'listening');
     base = 'http://127.0.0.1:' + server.address().port;
+    process.env.APP_ORIGIN = base;
   });
   after(async () => {
     global.fetch = originalFetch;
     if (server) await new Promise(resolve => server.close(resolve));
     await pool.end();
+    await require('../lib/db').pool.end();
   });
 
   test('Unauthenticated access to proctor data is rejected',async()=>{
