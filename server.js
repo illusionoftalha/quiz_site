@@ -114,42 +114,37 @@ app.get('/api/student/results/:roll_no', studentOnly,ownRoll, async (req, res) =
     }
 });
 
-// Start Assessment Session
-app.post('/api/start_assessment', studentOnly, async (req, res) => {
-    try {
-        const {version_code}=req.body;const roll_no=req.principal.subject;
-        const [assigned]=await pool.query('SELECT version_code FROM quiz_versions WHERE roll_no=? AND version_code=?',[roll_no,version_code]);
-        if(!assigned.length)return res.status(403).json({error:'Assessment not assigned'});
-        
-        // Check if an active session already exists
-        const [existing] = await pool.query('SELECT * FROM quiz_sessions WHERE roll_no = ? AND version_code = ? ORDER BY id DESC LIMIT 1', [roll_no, version_code]);
-        if (existing.length > 0) {
-            if(existing[0].status!=='IN_PROGRESS' || Date.now()-new Date(existing[0].started_at).getTime()>=3600000)return res.status(409).json({error:'Session submitted or timed out'});
-            const session_id = existing[0].id;
-            const [submissions] = await pool.query('SELECT challenge_code FROM code_submissions WHERE session_id = ?', [session_id]);
-            const coding_submissions = submissions.map(s => s.challenge_code);
-
-            return res.json({ 
-                success: true, 
-                session_id: session_id, 
-                // Never return the legacy session token; the account cookie handles authentication.
-                mcq_submitted: existing[0].mcq_score !== null,
-                coding_submissions: coding_submissions
-            });
-        }
-        
-        const session_token = require('crypto').randomBytes(32).toString('hex');
-        const [result] = await pool.query('INSERT INTO quiz_sessions (session_token, roll_no, version_code) VALUES (?, ?, ?)', [session_token, roll_no, version_code]);
-        
-        // Trigger WhatsApp alert for exam start
-        const messageText = `🚀 Student ${roll_no} has STARTED the assessment!`;
-        // External notifications removed: never commit provider credentials.
-
-        res.json({ success: true, session_id: result.insertId, mcq_submitted: false, coding_submissions: [] });
-    } catch (e) {
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
+// Start exactly one assigned session per student/version, serialized on the assignment row.
+app.post('/api/start_assessment',studentOnly,asyncRoute(async(req,res)=>{
+ const {version_code}=req.body||{};
+ const roll_no=req.principal.subject;
+ if(typeof version_code!=='string'|| !/^[A-Za-z0-9_-]{1,20}$/.test(version_code))
+  return res.status(400).json({error:'Invalid assessment'});
+ const conn=await pool.getConnection();
+ let session_id,mcq_submitted=false;
+ try{
+  await conn.beginTransaction();
+  const [assigned]=await conn.query('SELECT version_code FROM quiz_versions WHERE roll_no=? AND version_code=? FOR UPDATE',[roll_no,version_code]);
+  if(!assigned.length){await conn.rollback();return res.status(403).json({error:'Assessment not assigned'});}
+  const [previous]=await conn.query('SELECT id,status,started_at,mcq_score FROM quiz_sessions WHERE roll_no=? AND version_code=? ORDER BY id DESC LIMIT 1',[roll_no,version_code]);
+  if(previous.length){
+   const recent=previous[0];
+   if(recent.status!=='IN_PROGRESS'||Date.now()-new Date(recent.started_at).getTime()>=3600000){
+    await conn.rollback();return res.status(409).json({error:'Assessment submitted or expired'});
+   }
+   session_id=recent.id;
+   mcq_submitted=recent.mcq_score!==null;
+  }else{
+   const token=require('node:crypto').randomBytes(32).toString('hex');
+   const [created]=await conn.query('INSERT INTO quiz_sessions(session_token,roll_no,version_code) VALUES(?,?,?)',
+     [token,roll_no,version_code]);
+   session_id=created.insertId;
+  }
+  await conn.commit();
+ }catch(error){await conn.rollback();throw error;}finally{conn.release();}
+ const [submissions]=await pool.query('SELECT DISTINCT challenge_code FROM code_submissions WHERE session_id=?',[session_id]);
+ res.json({success:true,session_id,mcq_submitted,coding_submissions:submissions.map(row=>row.challenge_code)});
+}));
 
 // 2. Fetch MCQ Questions
 app.get('/api/mcq/:version_code', studentOnly, async (req, res) => {
