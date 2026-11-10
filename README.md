@@ -54,3 +54,9 @@ This is not a substitute for a full security assessment. Before processing real 
 ## License
 
 ISC.
+
+## Interface
+
+The student and proctor workspaces share a responsive navy-and-teal design system in `public/styles.css`, with local system fonts and no external font downloads. Sign-in forms include labels, password visibility controls, loading states and actionable errors. Assessment cards show real assignment status and link completed work to results. Keyboard navigation, focus-managed dialogs, reduced-motion support and sign-out are included.
+
+Design verification: desktop and 390px mobile browser previews using synthetic API fixtures; student sign-in, question navigation, coding workspace, proctor sign-in and code review checked. These visual previews do not replace the real MySQL CI suite or hosted release checks.
