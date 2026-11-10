@@ -6,3 +6,12 @@ node_modules/
 /tmp/run_*.c
 /localrun.txt
 /serveo.txt
+
+# Never commit credentials, database exports, generated output
+.env
+.env.*
+!.env.example
+*.sql.bak
+/database_backup*.sql
+/tmp/
+*.log

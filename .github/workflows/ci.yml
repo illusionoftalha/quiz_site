@@ -1,5 +1,7 @@
 name: Node + MySQL integration checks
 on:
+  push:
+    branches: [main, security/authorization-and-exam-integrity]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -10,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['20', '22']
+        node: ['20', '22', '24']
     services:
       mysql:
         image: mysql:8.4
@@ -46,3 +48,5 @@ jobs:
         run: npm run check
       - name: Unit and real MySQL integration tests
         run: npm test
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
