@@ -68,3 +68,16 @@ test('wrong-origin writes rejected before accessing database',async()=>{
   assert.equal(res.status,403);
  }finally{if(old===undefined)delete process.env.APP_ORIGIN;else process.env.APP_ORIGIN=old;}
 });
+
+test('malformed and oversized bodies return safe JSON errors',async()=>{
+ for(const [body,status,message] of [['{',400,'Invalid JSON'],[JSON.stringify({value:'x'.repeat(110000)}),413,'Request body too large']]){
+  const res=await fetch(url('/api/start_assessment'),{method:'POST',headers:{'Content-Type':'application/json'},body});
+  assert.equal(res.status,status);
+  assert.deepEqual(await res.json(),{error:message});
+ }
+});
+test('unknown API endpoints return JSON rather than an HTML error page',async()=>{
+ const res=await fetch(url('/api/missing'));
+ assert.equal(res.status,404);
+ assert.deepEqual(await res.json(),{error:'API endpoint not found'});
+});

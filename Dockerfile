@@ -1,22 +1,9 @@
-FROM node:18-bullseye
-
-# Install GCC compiler for C evaluation
-RUN apt-get update && apt-get install -y gcc g++ build-essential && rm -rf /var/lib/apt/lists/*
-
-# Set working directory
+FROM node:22-bookworm-slim
 WORKDIR /app
-
-# Copy package files
+ENV NODE_ENV=production
 COPY package*.json ./
-
-# Install dependencies
-RUN npm install
-
-# Copy application files
-COPY . .
-
-# Expose the application port
+RUN npm ci --omit=dev && npm cache clean --force
+COPY --chown=node:node . .
+USER node
 EXPOSE 3000
-
-# Start the application
 CMD ["node", "server.js"]

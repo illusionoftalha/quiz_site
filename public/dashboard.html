@@ -1030,8 +1030,12 @@ function loadAssessmentData(v_code) {
       });
   }
 
-  // Load Coding Challenges
-  fetch(`/api/coding/${v_code}`).then(r => r.json()).then(d => {
+  // Load Coding Challenges only once the server permits access.
+  codingLoaded = false;
+  if (!mcqFinished) return;
+  fetch(`/api/coding/${v_code}`).then(async r => { if (!r.ok) throw Error('Unable to load coding challenges'); return r.json(); }).then(d => {
+    if (currentVersion !== v_code) return;
+    codingLoaded = true;
     codingData = d.challenges || [];
     codingIndex = 0;
     
@@ -1046,7 +1050,8 @@ function loadAssessmentData(v_code) {
 
     if(codingData.length > 0) setupCodingTabs();
     else document.getElementById('c-title').textContent = "NO CODING CHALLENGES FOUND.";
-  });
+    checkFinishStatus();
+  }).catch(error => { document.getElementById('c-title').textContent = error.message; });
 }
 
 // --- MCQ LOGIC ---
@@ -1140,6 +1145,10 @@ function nextMcq() {
 let codingData = [];
 let codingIndex = 0;
 let codingSubmitted = new Set();
+const localDrafts = new Map();
+let codingLoaded = false;
+let draftLoadId = 0;
+let codeBusy = false;
 
 function setupCodingTabs() {
   const tabs = document.getElementById('code-tabs');
@@ -1149,7 +1158,8 @@ function setupCodingTabs() {
     let isSub = codingSubmitted.has(i) ? ' [✓]' : '';
     btn.className = `tab-btn ${i === codingIndex ? 'active' : ''}`;
     btn.textContent = `PROB_0${i + 1}${isSub}`;
-    btn.onclick = () => { codingIndex = i; loadCoding(); setupCodingTabs(); };
+    btn.disabled = codeBusy;
+    btn.onclick = () => { if (codeBusy) return; codingIndex = i; setupCodingTabs(); };
     tabs.appendChild(btn);
   });
   loadCoding();
@@ -1157,6 +1167,8 @@ function setupCodingTabs() {
 }
 
 function loadCoding() {
+  const loadId = ++draftLoadId;
+  const loadedSession = sessionId;
   const c = codingData[codingIndex];
   
   if (!c) {
@@ -1174,7 +1186,7 @@ function loadCoding() {
   document.getElementById('c-title').textContent = c.title + ` [${c.challenge_code}]`;
   document.getElementById('c-desc').textContent = c.description || '';
   document.getElementById('c-desc').style.whiteSpace = 'pre-wrap';
-  document.getElementById('c-constraints').textContent = c.constraints || 'None';
+  document.getElementById('c-constraints').textContent = c.constraints_txt || 'None';
   document.getElementById('c-s-in').textContent = c.sample_input || 'None';
   document.getElementById('c-s-out').textContent = c.sample_output || 'None';
   document.getElementById('c-details').style.display = 'block';
@@ -1189,7 +1201,7 @@ function loadCoding() {
       document.getElementById('c-out').textContent = '> Challenge already submitted and locked.';
       editor.value = '/* CODE LOCKED */';
       
-      fetch(`/api/autosave/${sessionId}/${c.challenge_code}`).then(r=>r.json()).then(data => { if(data.code) editor.value = data.code; });
+      fetch(`/api/autosave/${sessionId}/${c.challenge_code}`).then(r=>r.json()).then(data => { if(loadId === draftLoadId && loadedSession === sessionId && data.code !== null) editor.value = data.code; }).catch(() => {});
       return;
   } else {
       editor.disabled = false;
@@ -1197,23 +1209,44 @@ function loadCoding() {
       document.getElementById('btn-submit-code').disabled = false;
   }
 
+  editor.disabled = true;
+  document.getElementById('btn-run-code').disabled = true;
+  document.getElementById('btn-submit-code').disabled = true;
   editor.value = 'Loading draft...';
   document.getElementById('c-out').textContent = 'Waiting for execution instructions...';
   document.getElementById('c-status').textContent = '';
   document.getElementById('c-status').className = '';
 
+  const cachedDraft = localDrafts.get(loadedSession + ':' + c.challenge_code);
+  if (cachedDraft !== undefined) {
+    editor.value = cachedDraft;
+    editor.disabled = false;
+    document.getElementById('btn-run-code').disabled = false;
+    document.getElementById('btn-submit-code').disabled = false;
+    return;
+  }
+
   // Fetch Auto-save
   fetch(`/api/autosave/${sessionId}/${c.challenge_code}`)
-    .then(r=>r.json())
+    .then(async r => { if(!r.ok) throw Error('Draft unavailable'); return r.json(); })
     .then(data => {
-      editor.value = data.code || c.starter_code || '#include <stdio.h>\n\nint main() {\n    // Write C code here\n    return 0;\n}';
+      if(loadId !== draftLoadId || loadedSession !== sessionId) return;
+      editor.value = data.code ?? (c.starter_code || '#include <stdio.h>\n\nint main() {\n    // Write C code here\n    return 0;\n}');
+      editor.disabled = false;
+      document.getElementById('btn-run-code').disabled = false;
+      document.getElementById('btn-submit-code').disabled = false;
     }).catch(e => {
+      if(loadId !== draftLoadId || loadedSession !== sessionId) return;
+      document.getElementById('c-out').textContent = 'Draft could not be loaded. Re-select this problem to retry.';
       editor.value = c.starter_code || '#include <stdio.h>\n\nint main() {\n    // Write C code here\n    return 0;\n}';
     });
 }
 
 function runSampleCode() {
+  if (codeBusy || document.getElementById('c-editor').disabled) return;
+  const runIndex = codingIndex, runSession = sessionId;
   const c = codingData[codingIndex];
+  if (!c) return;
   const code = document.getElementById('c-editor').value;
   const out = document.getElementById('c-out');
   const statusEl = document.getElementById('c-status');
@@ -1227,7 +1260,8 @@ function runSampleCode() {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ challenge_code: c.challenge_code, code })
-  }).then(r=>r.json()).then(data => {
+  }).then(async r => { const data = await r.json(); if(!r.ok) throw Error(data.error || 'Execution unavailable'); return data; }).then(data => {
+    if (runIndex !== codingIndex || runSession !== sessionId) return;
     statusEl.textContent = `VERDICT: ${data.verdict}`;
     statusEl.className = `verdict-${data.verdict}`;
     out.textContent = data.output || "> Execution Completed.";
@@ -1238,11 +1272,17 @@ function runSampleCode() {
 }
 
 function submitCode() {
+  if (codeBusy || document.getElementById('c-editor').disabled) return;
+  const submittedIndex = codingIndex;
+  const submittedSession = sessionId;
   const c = codingData[codingIndex];
+  if (!c) return;
   const code = document.getElementById('c-editor').value;
   const out = document.getElementById('c-out');
   const statusEl = document.getElementById('c-status');
   
+  codeBusy = true;
+  document.querySelectorAll('#code-tabs button, #btn-run-code, #btn-submit-code').forEach(btn => btn.disabled = true);
   out.textContent = '> Compiling code and executing hidden test cases...';
   statusEl.textContent = 'EVALUATING...';
   statusEl.style.color = 'var(--g)';
@@ -1253,11 +1293,16 @@ function submitCode() {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ session_id: sessionId, challenge_code: c.challenge_code, code })
   }).then(async r => { const data = await r.json(); if (!r.ok || !data.verdict) throw Error(data.error || 'Submission rejected'); return data; }).then(data => {
+    if (sessionId !== submittedSession) return;
+    codingSubmitted.add(submittedIndex);
+    codeBusy = false;
+    sessionStorage.setItem('coding_submissions', JSON.stringify([...codingSubmitted].map(i => codingData[i].challenge_code)));
+    setupCodingTabs();
     statusEl.textContent = `VERDICT: ${data.verdict} [${data.cases_passed||0}/${data.total_cases||0}]`;
     statusEl.className = `verdict-${data.verdict}`;
     
     if(data.verdict === 'COMPILE_ERROR') {
-      out.textContent = data.output;
+      out.textContent = data.details || 'Compilation failed';
     } else if(data.verdict === 'ACCEPTED') {
       out.textContent = "> Submission Successful.\n> All hidden test cases passed. Recorded to database.";
     } else {
@@ -1266,12 +1311,16 @@ function submitCode() {
     
     // A graded verdict, including a wrong answer, is recorded as a submission.
     // HTTP errors and unavailable code judges are never marked as submitted.
-    codingSubmitted.add(codingIndex);
-    setupCodingTabs(); // Refresh tabs to show checkmark
     checkFinishStatus(); // Check if ready to finish
   }).catch(e => {
     out.textContent = '> Submission not recorded: '+e.message;
     statusEl.textContent = 'SUBMISSION_ERROR';
+  }).finally(() => {
+    codeBusy = false;
+    document.querySelectorAll('#code-tabs button').forEach(btn => btn.disabled = false);
+    const locked = codingSubmitted.has(codingIndex) || document.getElementById('c-editor').disabled;
+    document.getElementById('btn-run-code').disabled = locked;
+    document.getElementById('btn-submit-code').disabled = locked;
   });
 }
 
@@ -1290,7 +1339,7 @@ function checkFinishStatus() {
   }
 
   // MCQs must be finished, and all coding challenges must have at least one submission
-  if (mcqFinished && codingData.length > 0 && codingSubmitted.size === codingData.length) {
+  if (mcqFinished && codingLoaded && codingSubmitted.size === codingData.length) {
     btn.style.opacity = '1';
     btn.style.pointerEvents = 'auto';
     btn.style.color = 'var(--amber)';
@@ -1376,18 +1425,21 @@ window.addEventListener('pagehide', () => {
 });
 
 // --- AUTO-SAVE ENGINE ---
-let saveTimeout;
+// Capture identity and text at input time, never after a tab switch.
+const pendingDrafts = new Map();
 document.getElementById('c-editor').addEventListener('input', (e) => {
-  clearTimeout(saveTimeout);
-  saveTimeout = setTimeout(() => {
-    if(!sessionId || !codingData[codingIndex]) return;
-    const c = codingData[codingIndex];
+  if (!sessionId || !codingData[codingIndex] || e.target.disabled) return;
+  const payload = {session_id: sessionId, challenge_code: codingData[codingIndex].challenge_code, saved_code: e.target.value};
+  const key = payload.session_id + ':' + payload.challenge_code;
+  localDrafts.set(key, payload.saved_code);
+  clearTimeout(pendingDrafts.get(key));
+  pendingDrafts.set(key, setTimeout(() => {
+    pendingDrafts.delete(key);
     fetch('/api/autosave', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ session_id: sessionId, challenge_code: c.challenge_code, saved_code: e.target.value })
-    });
-  }, 2000); // 2 seconds debounce
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    }).catch(() => {});
+  }, 500));
 });
 
 // --- TIMER ENGINE ---

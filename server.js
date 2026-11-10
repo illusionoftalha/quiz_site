@@ -3,6 +3,7 @@ const {pool} = require('./lib/db');
 const auth = require('./lib/auth');
 const {gradeAnswers} = require('./lib/grading');
 const {runWithPiston} = require('./lib/judge');
+const {evaluateCode} = require('./lib/evaluate');
 const { getSubmissions } = require('./lib/submissions');
 const path = require('path');
 
@@ -213,22 +214,9 @@ app.post('/api/submit_code',studentOnly,ownSession,active,asyncRoute(async(req,r
  if(existing.length)return res.status(409).json({error:'Challenge already submitted'});
  const [cases]=await pool.query('SELECT stdin_input,expected_output FROM test_cases WHERE challenge_code=? ORDER BY case_number LIMIT 25',[challenge_code]);
  if(!cases.length)return res.status(409).json({error:'Challenge has no test cases'});
- let verdict='ACCEPTED',casesPassed=0,details='';
- const compile=await runWithPiston(code,'');
- if(compile.type==='SERVICE_UNAVAILABLE')return res.status(503).json({error:'Code judge unavailable; retry later'});
- if(compile.error){verdict=compile.type;details=compile.message;}
- else {
-  for(const tc of cases){
-   const input=String(tc.stdin_input||'').replace(/\\n/g,'\n');
-   const output=await runWithPiston(code,input);
-   if(output.type==='SERVICE_UNAVAILABLE')return res.status(503).json({error:'Code judge unavailable; retry later'});
-   if(output.error){verdict=output.type;details=output.message;break;}
-   if(output.stdout.trim()!==String(tc.expected_output||'').trim()){
-    verdict='WRONG_ANSWER';details='Hidden test case did not match';break;
-   }
-   casesPassed++;
-  }
- }
+ const evaluation=await evaluateCode(code,cases);
+ if(evaluation.unavailable)return res.status(503).json({error:'Code judge unavailable; retry later'});
+ const {verdict,casesPassed,details}=evaluation;
  const conn=await pool.getConnection();
  try {
   await conn.beginTransaction();
@@ -382,6 +370,15 @@ app.get('/api/admin/violations', adminOnly, async (req, res) => {
     }
 });
 
+
+// Always return JSON for API errors; never disclose stack traces or SQL details.
+app.use('/api', (req, res) => res.status(404).json({error:'API endpoint not found'}));
+app.use((error, req, res, next) => {
+ if(res.headersSent)return next(error);
+ const status=error.type==='entity.too.large'?413:error.type==='entity.parse.failed'?400:500;
+ const message=status===413?'Request body too large':status===400?'Invalid JSON':'Internal server error';
+ res.status(status).json({error:message});
+});
 
 if (require.main === module) {
     app.listen(PORT, () => {

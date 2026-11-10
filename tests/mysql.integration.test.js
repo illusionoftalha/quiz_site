@@ -27,22 +27,7 @@ if (process.env.RUN_MYSQL_TESTS !== '1') {
     return {status: res.status, data: raw ? JSON.parse(raw) : {}, cookie: res.headers.get('set-cookie')};
   }
   async function setupDatabase() {
-    const commands = [
-      'CREATE TABLE students (roll_no VARCHAR(20) PRIMARY KEY,full_name VARCHAR(100) NOT NULL)',
-      'CREATE TABLE admin_users (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,username VARCHAR(60) UNIQUE NOT NULL,password_hash VARCHAR(255) NOT NULL)',
-      'CREATE TABLE quiz_versions (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,version_code VARCHAR(20) UNIQUE NOT NULL,roll_no VARCHAR(20) NOT NULL,total_questions INT NOT NULL)',
-      "CREATE TABLE quiz_sessions (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,session_token VARCHAR(64) NOT NULL UNIQUE,roll_no VARCHAR(20) NOT NULL,version_code VARCHAR(20) NOT NULL,started_at DATETIME DEFAULT CURRENT_TIMESTAMP,submitted_at DATETIME DEFAULT NULL,mcq_score INT DEFAULT NULL,total_mcq INT DEFAULT NULL,status ENUM('IN_PROGRESS','SUBMITTED','ABANDONED') NOT NULL DEFAULT 'IN_PROGRESS',time_remaining INT NOT NULL DEFAULT 3600)",
-      'CREATE TABLE mcq_questions (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,version_code VARCHAR(20) NOT NULL,q_number INT NOT NULL,topic VARCHAR(50),question_text TEXT,code_snippet TEXT,option_a TEXT,option_b TEXT,option_c TEXT,option_d TEXT,correct_option INT NOT NULL)',
-      'CREATE TABLE mcq_answers (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,session_id INT NOT NULL,question_id INT NOT NULL,selected_option INT NOT NULL,is_correct BOOLEAN NOT NULL,UNIQUE KEY uq_session_q (session_id,question_id))',
-      'CREATE TABLE coding_challenges (challenge_code VARCHAR(20) NOT NULL PRIMARY KEY,version_code VARCHAR(20),title VARCHAR(200),description TEXT,constraints_txt TEXT,sample_input TEXT,sample_output TEXT)',
-      'CREATE TABLE test_cases (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,challenge_code VARCHAR(20),case_number INT NOT NULL,stdin_input TEXT,expected_output TEXT)',
-      "CREATE TABLE code_submissions (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,session_id INT NOT NULL,challenge_code VARCHAR(20) NOT NULL,submitted_code LONGTEXT NOT NULL,language VARCHAR(20) NOT NULL DEFAULT 'c',submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP,verdict ENUM('PENDING','ACCEPTED','WRONG_ANSWER','COMPILE_ERROR','RUNTIME_ERROR','TIME_LIMIT') NOT NULL DEFAULT 'PENDING',cases_passed INT DEFAULT 0,total_cases INT DEFAULT 0,compiler_output TEXT)",
-      'CREATE TABLE auto_saves (session_id INT NOT NULL,challenge_code VARCHAR(20) NOT NULL,saved_code LONGTEXT NOT NULL,PRIMARY KEY(session_id,challenge_code))',
-      'CREATE TABLE security_logs (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,session_id INT NOT NULL,event_type VARCHAR(50) NOT NULL,details TEXT,logged_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)',
-      'CREATE VIEW v_session_results AS SELECT id AS session_id,roll_no,version_code,started_at,submitted_at,mcq_score,total_mcq,status FROM quiz_sessions',
-      'CREATE VIEW v_coding_leaderboard AS SELECT qs.roll_no,cs.session_id,cs.challenge_code,cc.title,cs.verdict,cs.cases_passed,cs.total_cases,cs.submitted_at FROM code_submissions cs JOIN quiz_sessions qs ON qs.id=cs.session_id JOIN coding_challenges cc ON cc.challenge_code=cs.challenge_code'
-    ];
-    for (const sql of commands) await pool.query(sql);
+    await require('../lib/schema').initializeSchema(pool);
     const { execFileSync } = require('node:child_process');
     const path = require('node:path');
     execFileSync(process.execPath, [path.join(__dirname, '../scripts/migrate.js')], {
@@ -110,6 +95,8 @@ if (process.env.RUN_MYSQL_TESTS !== '1') {
     const secondStart = await call('/api/start_assessment',{method:'POST',cookie:studentCookie,body:{version_code:'V1'}});
     assert.equal(secondStart.status,200);
     assert.equal(secondStart.data.session_id,sessionId,'restarting must reuse the same active session');
+    const concurrent = await Promise.all(Array.from({length:4},()=>call('/api/start_assessment',{method:'POST',cookie:studentCookie,body:{version_code:'V1'}})));
+    assert.ok(concurrent.every(result=>result.status===200 && result.data.session_id===sessionId));
     const questions = await call('/api/mcq/V1',{cookie:studentCookie});
     assert.equal(questions.status,200);
     assert.equal(questions.data.questions.length,2);
@@ -134,7 +121,9 @@ if (process.env.RUN_MYSQL_TESTS !== '1') {
   test('Coding samples and hidden tests use external judge mock; finish and results work',async()=>{
     const run = await call('/api/run_code',{method:'POST',cookie:studentCookie,body:{challenge_code:'CH1',code:'int main(){return 0;}' }});
     assert.equal(run.status,200);
-    const submitted = await call('/api/submit_code',{method:'POST',cookie:studentCookie,body:{session_id:sessionId,challenge_code:'CH1',code:'int main(){return 0;}' }});
+    const attempts = await Promise.all(Array.from({length:2},()=>call('/api/submit_code',{method:'POST',cookie:studentCookie,body:{session_id:sessionId,challenge_code:'CH1',code:'int main(){return 0;}' }})));
+    assert.deepEqual(attempts.map(result=>result.status).sort(),[200,409]);
+    const submitted = attempts.find(result=>result.status===200);
     assert.equal(submitted.status,200);
     assert.equal(submitted.data.verdict,'ACCEPTED');
     assert.equal((await call('/api/submit_code',{method:'POST',cookie:studentCookie,body:{session_id:sessionId,challenge_code:'CH1',code:'foo' }})).status,409);
@@ -149,6 +138,14 @@ if (process.env.RUN_MYSQL_TESTS !== '1') {
     assert.equal(proctor.data.submissions.length,1);
     assert.equal((await call('/api/admin/violations',{cookie:adminCookie})).status,200);
     assert.equal((await call('/api/autosave',{method:'POST',cookie:studentCookie,body:{session_id:sessionId,challenge_code:'CH1',saved_code:'new draft'}})).status,409);
+  });
+  test('Read-only preflight passes provisioned test schema and initialization refuses existing tables',()=>{
+    const {execFileSync,spawnSync}=require('node:child_process');
+    const path=require('node:path');
+    assert.match(execFileSync(process.execPath,[path.join(__dirname,'../scripts/preflight.js')],{env:process.env,encoding:'utf8'}),/PASS:/);
+    const init=spawnSync(process.execPath,[path.join(__dirname,'../scripts/init-db.js')],{env:process.env,encoding:'utf8'});
+    assert.equal(init.status,1);
+    assert.match(init.stderr,/not empty/);
   });
   test('Student logout revokes the server-side session',async()=>{
     assert.equal((await call('/api/auth/logout',{method:'POST',cookie:studentCookie,body:{}})).status,200);

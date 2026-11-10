@@ -17,14 +17,14 @@ Node.js / Express / MySQL assessment application with student and proctor dashbo
 
 ## Local setup
 
-Requires Node.js 20+, MySQL and an existing quiz schema. The existing database backup files were removed from the new branch because they contain student/session records. Restore sensitive data privately, never from a public repository.
+Requires Node.js 20.19+ and MySQL 8.4. The existing database backup files were removed from the new branch because they contain student/session records. Restore sensitive data privately, never from a public repository.
 
 1. Run npm ci.
 2. Copy .env.example to .env and configure your database. **Node does not automatically read .env**: provide these variables through your shell, hosting platform or a trusted dotenv loader.
 3. Set APP_ORIGIN=http://localhost:3000 for local testing, and use the exact HTTPS public origin in production.
-4. Apply the migration: npm run migrate.
+4. For a new installation, create an empty MySQL database and run `npm run db:init` with its connection variables set. This refuses nonempty databases and creates no student records. For an existing installation, skip initialization. Apply authentication tables with `npm run migrate`.
 5. Provision credentials interactively: node scripts/provision.js admin ADMIN_USERNAME and node scripts/provision.js student ROLL_NUMBER. Each prompts for a 12+ character password without echoing it.
-6. Start the application: npm start. The frontend is served at http://localhost:3000.
+6. Run `npm run preflight` to check origin, schema and account credential coverage without modifying data. Start with `npm start` (shell variables) or `npm run start:local` (loads `.env`). The frontend is served at http://localhost:3000.
 
 Never reuse the publicly committed example admin credentials, old API keys or tokens. Revoke/rotate all potentially exposed credentials, including those in Git history.
 
@@ -32,7 +32,7 @@ Never reuse the publicly committed example admin credentials, old API keys or to
 
 - npm test — Node test suites for authentication, grading and the existing submissions service.
 - npm run check — JavaScript syntax validation.
-- GitHub Actions CI — Node 20/22 build/test checks on push and pull requests.
+- GitHub Actions CI — Node 20/22/24 build/test and dependency audit checks on push and pull requests.
 
 ## Endpoints
 
@@ -49,7 +49,7 @@ Never reuse the publicly committed example admin credentials, old API keys or to
 
 ## Remaining production hardening
 
-This is not a substitute for a full security assessment. Before processing real student records, add distributed rate limits (edge or Redis), robust concurrent assessment submission locking, production telemetry, external execution quotas, dependency scanning, end-to-end authentication tests using a seeded ephemeral MySQL database, and privacy/retention policies for student logs.
+This is not a substitute for a full security assessment. Before processing real student records, add distributed rate limits (edge or Redis), production telemetry, external execution quotas, and privacy/retention policies for student logs. Automated integration tests and dependency auditing are included, but hosted production verification is a separate requirement.
 
 ## License
 
